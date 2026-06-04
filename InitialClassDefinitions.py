@@ -1,3 +1,17 @@
+
+# Overall Code Function Summary:
+
+# Author(s): Zachary Dyre, Graeme Appel, Jamal Bragg
+
+# Last Updated: 6/4/2026
+
+
+
+
+
+
+
+
 # Definition of Necessary Libraries:
 
 import cv2 # Library to access all necessary OpenCV functions
