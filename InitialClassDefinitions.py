@@ -40,7 +40,7 @@ class sentry:
 
 # 2.) nextFrame()
 # Function Summary:
-# Returns true if a non-star target is found.
+# Returns object ID if a non-star target is found.
 
 # Inputs:
 # TBD
@@ -53,8 +53,191 @@ class sentry:
         return 0
     
 
-# 3.) 
+# 3.) getTargetCoords()
+# Function Summary:
+# Retrieves positions for x and y positions in both the previous frame (x,y) and the next frame (nx, ny)
+
+
+# Inputs:
+# TBD
+
+# Outputs: 
+# TBD
     
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def getTargetCoords(self): # use a pointer that points to an instance of the target class 
+        return 0
+    
+
+# 4.) targetList()
+# Function Summary:
+# array of points to a linked list
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def targetList():
+        return 0
+    
+
+# 5.) targetListSize()
+# Function Summary:
+# Outputs the size of the current target list array.
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def targetListSize():
+        return 0
+    
+
+# 6.) addTarget(target)
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def addTarget():
+        return 0
+    
+
+
+# Class -- Detector
+class detector:
+
+ # Note: Most of the OpenCV functions will be used here. Reference sampleFilters.py and SampleFiltersConverted.cpp for syntax and explanations of embedded functions
+
+    # Definition of relevant properties:
+
+
+
+# Member functions:
+
+# 1.) filter(frame)
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def filter():
+        return 0
+    
+# 2.) contour()
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def contour():
+        return 0
+    
+# 3.) threshold()
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def threshold():
+        return 0
+    
+# 4.) scan()
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def scan():
+        return 0
+    
+# 5.) prevTargets()
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def prevTargets():
+        return 0
+    
+# 6.) nextTargets()
+# Function Summary:
+# TBD
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def nextTargets():
+        return 0
+    
+# 7.) trimOld()
+# Function Summary:
+# Remove old datapoints (i.e getNewTargets - targetsOld)
+
+# Inputs:
+# TBD
+
+# Outputs:
+# TBD
+
+# *** Returns 0 for now because we haven't written this yet (remove this line when function is written)
+    def trimOld():
+        return 0
+    
+    
+    
+    
+    
+    
+    
+
+    
+
+    
+
+    
+
+
 
 
 
@@ -84,6 +267,7 @@ class target:
     # 4.) ID = each object in every frame will have an object ID which will be tracked and noted across frames. 
     # 5.) nx = new x position of target in the next camera frame 
     # 6.) ny = new y position of target in the next camera frame 
+    # 7.) isStar = float between 0.0 and 1.0 where the closer to 1.0 the more likely it is a star
 
     def __init__(self, x, y, size, ID, nx, ny, isStar):
         self.x = x
