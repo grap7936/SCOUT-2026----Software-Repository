@@ -1,4 +1,5 @@
 /*
+
 //  Code function summary:
 // 1.) Activate Video capture with cv2 library. Note that this overall camera capture has green squares showing overall bulk motion
 // 2.) Create Forground-Background (fgbg) view by using input function CreateBackgroundSubtractorMOG2() which creates a camera view
@@ -22,6 +23,7 @@
 // Author(s): Converted/Reformatted by Graeme Appel
 
 // Last Revised: 6/01/2026
+
 */
 
 // Define All Necessary Libraries:
