@@ -129,6 +129,8 @@ class sentry:
     
 
 
+
+
 # Class -- Detector
 class detector:
 
@@ -240,34 +242,6 @@ class detector:
     
     
     
-    
-    
-    
-    
-
-    
-
-    
-
-    
-
-
-
-
-
-
-
-
-
-     
-
-
-
-
-
-
-
-
 
 
 
