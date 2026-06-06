@@ -1,8 +1,8 @@
-#ifndef GRAPH_H
-#define GRAPH_H
+#ifndef GRAPH_HPP
+#define GRAPH_HPP
 
 #include <vector>
-#include <Target.hpp>
+#include "Target.hpp"
 
 class Graph {
 
@@ -17,11 +17,16 @@ public:
     // Backup Constructor
     Graph();
 
+    // Destructor
+    ~Graph();
+
     void addVertex(Target*, float);
 
     Target* getVertexPtr(int);
 
     Target* getVertexPtrByID(int);
+
+    int getVertexID(int);
 
     float getVertexWeight(int);
 
