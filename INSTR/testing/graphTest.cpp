@@ -6,6 +6,8 @@
     g++ -I ./include testing/graphTest.cpp src/Graph.cpp -o graphTest.out
 */
 
+// OUT DATED FOR NEW GRAPH CLASS
+
 int main() {
 
     std::vector<int> id1 = { 2, 3, 4, 5, 6, 7, 8, 9 };

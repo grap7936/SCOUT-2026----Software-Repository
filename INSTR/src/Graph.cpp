@@ -10,13 +10,23 @@ Graph::Graph() {
     root = -1;
 };
 
-void Graph::addVertex( int vertex_id, float vertex_weight ) {
-    id.push_back( vertex_id );
+void Graph::addVertex( Target* vertex, float vertex_weight ) {
+    target.push_back( vertex );
     weight.push_back( vertex_weight );
 }
 
-int Graph::getVertexID( int index ){
-    return id[index];
+Target* Graph::getVertexPtr( int index ){
+    return target[index];
+}
+
+Target* Graph::getVertexPtrByID( int vertex_id ){
+    int size = target.capacity();
+    for ( int i = 0; i < size; i++ ) {
+        if ( target[i]->id == vertex_id ) {
+            return target[i];
+        }
+    }
+    return NULL;
 }
 
 float Graph::getVertexWeight( int index ){
@@ -27,9 +37,9 @@ float Graph::getVertexWeight( int index ){
 }
 
 float Graph::getVertexWeightByID( int vertex_id ){
-    int size = id.capacity();
+    int size = target.capacity();
     for ( int i = 0; i < size; i++ ) {
-        if ( id[i] == vertex_id ) {
+        if ( target[i]->id == vertex_id ) {
             return weight[i];
         }
     }

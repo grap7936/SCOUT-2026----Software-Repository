@@ -2,12 +2,13 @@
 #define GRAPH_H
 
 #include <vector>
+#include <Target.hpp>
 
 class Graph {
 
 public:
     int root; // id of root node
-    std::vector<int> id; // vertex id
+    std::vector<Target*> target; // vertex instance
     std::vector<float> weight; // stores weight of vertex with corresponding index
     
     // Constructor
@@ -16,9 +17,11 @@ public:
     // Backup Constructor
     Graph();
 
-    void addVertex(int, float);
+    void addVertex(Target*, float);
 
-    int getVertexID(int);
+    Target* getVertexPtr(int);
+
+    Target* getVertexPtrByID(int);
 
     float getVertexWeight(int);
 
