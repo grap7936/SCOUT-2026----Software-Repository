@@ -9,7 +9,7 @@ class Graph {
 public:
     int root; // id of root node
     std::vector<Target*> target; // vertex instance
-    std::vector<float> weight; // stores weight of vertex with corresponding index
+    std::vector<int> weight; // stores weight of vertex with corresponding index
     
     // Constructor
     Graph( int input_id );
@@ -28,9 +28,9 @@ public:
 
     int getVertexID(int);
 
-    float getVertexWeight(int);
+    int getVertexWeight(int);
 
-    float getVertexWeightByID(int);
+    int getVertexWeightByID(int);
 
     void sortByWeight();
 

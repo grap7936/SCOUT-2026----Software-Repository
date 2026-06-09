@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <math.h>
+#include <algorithm>
+#include <opencv4/opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Graph.hpp"
 
@@ -10,15 +12,15 @@ class Selector {
 
 public:
 
-    int frame_w;
-    int frame_h;
-    float max_norm;
     float threshold;
 
     std::vector<Target*>* prev_targets;
     std::vector<Target*>* next_targets;
+    std::vector<Target*>* full_list;
 
-    Selector( int, int, float );
+    Selector( int );
+
+    Selector();
 
     std::vector<Target*>* getPrevTargetsPtr();
 
@@ -28,13 +30,23 @@ public:
 
     void setNextTargetsPtr( std::vector<Target*>* );
 
+    std::vector<Target*>* getFullTargetListPtr();
+
+    void setFullTargetListPtr( std::vector<Target*>* );
+
+    void initTarget( Target* );
+
     void weight( Target* );
 
     void handleConflict( Target*, Target* );
 
     void connect();
 
-    // void starWeight(); move to Sentry Class?
+    std::vector<int> hungarianAlgorithm( std::vector<std::vector<int>> );
+
+    void estimateNextState();
+
+    void updateEstimate();
 
     void scan( std::vector<Target*>*, std::vector<Target*>* );
 

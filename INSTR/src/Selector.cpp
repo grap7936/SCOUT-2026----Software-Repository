@@ -1,11 +1,13 @@
 #include <Selector.hpp>
 
 // Constructor
-Selector::Selector( int w, int h, float thresh ) {
-    frame_w = w;
-    frame_h = h;
-    max_norm = sqrt( pow(w, 2) + pow(h, 2) );
+Selector::Selector( int thresh ) {
     threshold = thresh;
+}
+
+// default Constructor
+Selector::Selector() {
+    threshold = 1000;
 }
 
 std::vector<Target*>* Selector::getPrevTargetsPtr() {
@@ -20,25 +22,49 @@ std::vector<Target*>* Selector::getNextTargetsPtr() {
     return next_targets;
 }
 
+void Selector::setFullTargetListPtr( std::vector<Target*>* new_ptr ) {
+    full_list = new_ptr;
+}
+
+std::vector<Target*>* Selector::getFullTargetListPtr() {
+    return full_list;
+}
+
 void Selector::setNextTargetsPtr( std::vector<Target*>* new_ptr ) {
     next_targets = new_ptr;
+}
+
+void Selector::initTarget( Target* new_target ) {
+
+    new_target->id = full_list->size();
+    full_list->push_back(new_target);
+    // Initialize Kalman Filter
+    // State: [x, y, vx, vy]^T -> 4 dimensions
+    // Measurement: [x, y] -> 2 dimensions
+    int stateDim = 4;
+    int measDim = 2;
+    int ctrlDim = 0;
+    
+    cv::KalmanFilter* KF = new cv::KalmanFilter(stateDim, measDim, ctrlDim, CV_32F);
+    new_target->kf = KF;
+    // Initial state setup
+    KF->statePost.at<float>(0) = new_target->x; // Initial X
+    KF->statePost.at<float>(1) = new_target->y; // Initial Y
+    KF->statePost.at<float>(2) = 0;   // Initial Vx
+    KF->statePost.at<float>(3) = 0;   // Initial Vy
 }
 
 /* Function weight( Target* root )
  * description:
  *      Creates and populates a proximity graph for a provided root target.
- *      Calculates a weight for each target in nextTargets[]
- *      using distance to the provided root target.
- *      This weight is bound between 0.0 and 1.0.
+ *      Calculates the distance to each target in nextTargets[]
+ *      from the provided root target.
  * inputs:
  *      Target* root - pointer to a single target to compare to (from prevTargets[]).
  * returns:
  *      void - sets the root.proximity pointer to a created proximity graph
  */
 void Selector::weight( Target* root ) {
-
-    float gain1 = 0.6;
-    float gain2 = 1.0 - gain1;
 
     // populate graph
     Graph* graph = new Graph(root->id);
@@ -47,76 +73,20 @@ void Selector::weight( Target* root ) {
         int dx = root->x - (*next_targets)[i]->x;
         int dy = root->y - (*next_targets)[i]->y;
         float norm1 = sqrt( pow(dx, 2) + pow(dy, 2) );
-        float weight1 = gain1 * (max_norm - norm1) / max_norm;
+        int weight1 = norm1*10;
 
         // find normalized distance to nx,ny
         int dnx = root->nx - (*next_targets)[i]->x;
         int dny = root->ny - (*next_targets)[i]->y;
         float norm2 = sqrt( pow(dnx, 2) + pow(dny, 2) );
-        float weight2 = gain2 * (max_norm - norm2) / max_norm;
+        int weight2 = norm2*10;
 
-        // clamp weight to 1.0 max
-        if ( weight1 + weight2 > 1 ){
-            graph->addVertex( (*next_targets)[i], 1.0 );
-        } else {
-            graph->addVertex( (*next_targets)[i], weight1 + weight2 );
-        }
+        graph->addVertex( (*next_targets)[i], weight1+weight2 );
+
     }
 
-    graph->sortByWeight();
     root->proximity = graph;
 
-}
-
-/* Function handleConflict( Target* obj1, Target* obj2 )
- * description:
- *      Handles the case where multiple prevTargets weight a nextTarget above the 'threshold'.
- *      Assigns Target.nextInstance pointers for both obj1 and obj2.
- * inputs:
- *      Target* obj1 - target with currently assigned next_instance pointer
- *      
- *      Target* obj2 - target contesting assigned next_instance
- * 
- * returns:
- *      void - sets Target.next_instance pointers for targets obj1 and obj2.
- */
-void Selector::handleConflict( Target* obj1, Target* obj2 ) {
-
-    float backup_weight1 = obj1->proximity->getVertexWeight(1); 
-    float backup_weight2 = obj2->proximity->getVertexWeight(1); 
-    if ( obj2->proximity->getVertexWeight(0) > obj1->proximity->getVertexWeight(0) ) {
-        if ( backup_weight1 > threshold ) {
-            obj1->next_instance->prev_instance = obj2;
-            obj1->next_instance = obj2->proximity->getVertexPtr(1);
-            obj2->next_instance->id = obj2->id;
-
-        } else if ( backup_weight2 > threshold ) {
-            obj2->next_instance = obj2->proximity->getVertexPtr(1);
-            obj2->next_instance->prev_instance = obj2;
-            obj2->next_instance->id = obj2->id;
-
-        } else {
-            obj1->next_instance->prev_instance = obj2;
-            obj2->next_instance = obj1->next_instance;
-            obj2->next_instance->id = obj2->id;
-            obj1->next_instance = NULL;
-        } 
-    } else if ( backup_weight2 > threshold ) {
-        obj2->next_instance = obj2->proximity->getVertexPtr(1);
-        obj2->next_instance->prev_instance = obj2;
-        obj2->next_instance->id = obj2->id;
-
-    } else if ( backup_weight1 > threshold ) {
-        obj1->next_instance = obj1->proximity->getVertexPtr(1);
-        obj2->next_instance->prev_instance = obj2;
-        obj2->next_instance->id = obj2->id;
-    
-    } else {
-        obj2->next_instance = NULL;
-
-    }
-    
-    
 }
 
 /* Function connect()
@@ -131,40 +101,182 @@ void Selector::handleConflict( Target* obj1, Target* obj2 ) {
  *             proximity value exceeds 'threshold' (see Constructor).
  */
 void Selector::connect() {
-    std::vector<int> used_ids = {};
-    for (int i = 0; i < prev_targets->size(); i++) {
+    int size = prev_targets->size();
 
-        Target* root = (*prev_targets)[i];
-        int used_ids_size = used_ids.size();
-        // check if above weight threshold
-        if ( root->proximity->getVertexWeight(0) > threshold ) {
-            // connect pointer
-            root->next_instance = root->proximity->getVertexPtr(0);
-            // check if instance is already a "next instance"
-            bool duplicate_match_found = false;
-            for ( int j = 0; j < used_ids_size; j++) {
-                // check if id is used
-                if ( used_ids[j] == root->next_instance->id ) {
-                    duplicate_match_found = true;
-                    break;
+    std::vector<std::vector<int>> proximity_matrix;
+
+    for ( int i = 0; i < size; i++ ) {
+        proximity_matrix.push_back( (*prev_targets)[i]->proximity->weight );
+    }
+
+    std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
+
+    int mat_size = col_from_row.size();
+
+    for ( int j = 0; j < mat_size; j++ ) {
+        int connect_index = col_from_row[j];
+
+        if ( (*prev_targets)[j]->proximity->getVertexWeight(connect_index) > threshold ) {
+            initTarget((*prev_targets)[j]);
+            continue;
+        } else {
+            (*prev_targets)[j]->next_instance = (*prev_targets)[j]->proximity->getVertexPtr(connect_index);
+            (*prev_targets)[j]->next_instance->prev_instance = (*prev_targets)[j];
+            (*prev_targets)[j]->next_instance->id = (*prev_targets)[j]->id;
+            (*prev_targets)[j]->next_instance->kf = (*prev_targets)[j]->kf;
+
+        }
+    }
+    
+}
+
+/* Function hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix )
+ * description:
+ *      Implementation of a hungarian algorithm to match prev_targets to next_targets
+ * inputs:
+ *      std::vector<std::vector<int>> cost_matrix - 2D vector matrix of prevTarget->proximity values
+ * returns:
+ *      std::vector<int> - a vector where result[i] contains the column index assigned to row i
+ */
+std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cost_matrix ) {
+    if (cost_matrix.empty()) return {};
+
+    const int INF = 1e9; // Representation of infinity
+    
+    int n = cost_matrix.size();
+    int m = cost_matrix[0].size(); // Works for rectangular matrices where n <= m
+    
+    // Potentials for rows (u) and columns (v)
+    std::vector<int> u(n + 1, 0), v(m + 1, 0);
+    // Tracks assignments: p[j] = i means column j is assigned to row i
+    std::vector<int> p(m + 1, 0);
+    // Tracks the minimum delta for each column during BFS step
+    std::vector<int> way(m + 1, 0);
+
+    for (int i = 1; i <= n; ++i) {
+        p[0] = i;
+        int min_in_row = 0;
+        std::vector<int> min_v(m + 1, INF);
+        std::vector<bool> used(m + 1, false);
+        
+        do {
+            used[min_in_row] = true;
+            int current_row = p[min_in_row];
+            int delta = INF;
+            int next_column = 0;
+            
+            for (int j = 1; j <= m; ++j) {
+                if (!used[j]) {
+                    // Calculate current reduced cost
+                    int current_cost = cost_matrix[current_row - 1][j - 1] - u[current_row] - v[j];
+                    if (current_cost < min_v[j]) {
+                        min_v[j] = current_cost;
+                        way[j] = min_in_row;
+                    }
+                    if (min_v[j] < delta) {
+                        delta = min_v[j];
+                        next_column = j;
+                    }
                 }
             }
             
-            if ( duplicate_match_found ) {
-                // handle tracking conflict
-                handleConflict( root->next_instance->prev_instance, root );
-            } else {
-                // update values
-                root->next_instance->prev_instance = root;
-                root->next_instance->id = root->id;
-                used_ids.push_back( root->id );
+            // Update potentials
+            for (int j = 0; j <= m; ++j) {
+                if (used[j]) {
+                    u[p[j]] += delta;
+                    v[j] -= delta;
+                } else {
+                    min_v[j] -= delta;
+                }
             }
-                       
-        } else {
-            root->next_instance = NULL;
+            min_in_row = next_column;
+        } while (p[min_in_row] != 0);
+        
+        // Remap alternating path
+        do {
+            int previous_column = way[min_in_row];
+            p[min_in_row] = p[previous_column];
+            min_in_row = previous_column;
+        } while (min_in_row != 0);
+    }
+
+    // Format output: match row indexes to their chosen columns
+    std::vector<int> assignment(n);
+    for (int j = 1; j <= m; ++j) {
+        if (p[j] != 0) {
+            assignment[p[j] - 1] = j - 1;
         }
     }
+    return assignment;
 }
+
+void Selector::estimateNextState() {
+
+    if ( prev_targets->size() == 0 ) { return; }
+
+    for (int i = 0; i < prev_targets->size(); i++) {
+
+        Target* target = (*prev_targets)[i];
+
+        cv::KalmanFilter* KF = target->kf;
+
+        // 2. Define Matrices
+        // Transition matrix (Constant Velocity: x = x0 + vx*df, y = y0 + vy*df)
+        int df = 1;
+        
+        float A[] = {
+            1, 0, df, 0,
+            0, 1, 0, df,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        };
+        KF->transitionMatrix = cv::Mat(4, 4, CV_32F, A);
+
+        // Measurement matrix (We measure the position directly)
+        float H[] = {
+            1, 0, 0, 0,
+            0, 1, 0, 0
+        };
+        KF->measurementMatrix = cv::Mat(2, 4, CV_32F, H);
+
+        // 3. Set Noise Covariances
+        // Process noise (system uncertainty)
+        setIdentity(KF->processNoiseCov, cv::Scalar::all(1e-4));
+        // Measurement noise (optical detection noise)
+        setIdentity(KF->measurementNoiseCov, cv::Scalar::all(1e-1));
+        // Posteriori error estimate covariance
+        setIdentity(KF->errorCovPost, cv::Scalar::all(1));
+
+        cv::Mat prediction = KF->predict();
+
+        target->nx = prediction.at<int>(0);
+        target->ny = prediction.at<int>(1);
+
+    }  
+        
+}
+
+void Selector::updateEstimate() {
+    for (int i = 0; i < next_targets->size(); i++) {
+        Target* target = (*next_targets)[i];
+        if ( target->prev_instance != NULL ) {
+            // Camera measurement
+            cv::Mat measurement = cv::Mat::zeros(2, 1, CV_32F);
+            
+            measurement.at<float>(0) = target->x;
+            measurement.at<float>(1) = target->y;
+
+            // corrected estimate of original x,y in prev_target
+            cv::Mat estimated = target->kf->correct(measurement);
+            target->kx = estimated.at<float>(0);
+            target->ky = estimated.at<float>(1);
+            target->vx = estimated.at<float>(2);
+            target->vy = estimated.at<float>(3);
+        }
+        
+    }
+}
+
 
 /* Function scan( vector<Target*>* prev, vector<Target*>* next )
  * description:
@@ -186,10 +298,23 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next ) {
     setPrevTargetsPtr(prev);
 
     int prev_size = prev->size();
-    for ( int i = 0; i < prev_size; i++) {
-        weight( (*prev)[i] );
+    int next_size = next->size();
+    if ( prev_size == 0 ) {
+        for (int i = 0; i < next_size; i++) {
+            initTarget((*next)[i]);
+        }
+    } else {
+        for ( int i = 0; i < prev_size; i++) {
+            weight( (*prev)[i] );
+        }
+
+        estimateNextState();
+
+        connect();
+
+        updateEstimate();
     }
 
-    connect();
+      
 
 }

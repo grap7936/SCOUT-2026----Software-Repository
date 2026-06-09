@@ -46,14 +46,14 @@ int Graph::getVertexID( int index ){
     return target[index]->id;
 }
 
-float Graph::getVertexWeight( int index ){
+int Graph::getVertexWeight( int index ){
     if (index >= weight.size()) {
         return -2;
     }
     return weight[index];
 }
 
-float Graph::getVertexWeightByID( int vertex_id ){
+int Graph::getVertexWeightByID( int vertex_id ){
     int size = target.size();
     for ( int i = 0; i < size; i++ ) {
         if ( target[i]->id == vertex_id ) {
@@ -68,7 +68,7 @@ void Graph::sortByWeight() {
     // vector size
     int size = weight.size();
     // duplicate
-    std::vector<float> copy_weight;
+    std::vector<int> copy_weight;
     std::vector<Target*> copy_target;
 
     // iterate through
@@ -79,7 +79,7 @@ void Graph::sortByWeight() {
         
         // compare to previous elements to find index
         int index = i;
-        while (weight[i] > weight[index-1] && index > 0) {
+        while (weight[i] < weight[index-1] && index > 0) {
             index--;
         }
 
