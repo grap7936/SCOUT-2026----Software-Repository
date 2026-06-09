@@ -24,7 +24,7 @@ void Sentry::pageFrame( cv::Mat frame ) {
         prev_targets.push_back(next_targets[i]);
     }
     clearNextTargets();
-    //detector.scan( frame, &next_targets )
+    detector.scan( frame, next_targets );
     selector.scan(&prev_targets, &next_targets, &full_target_list);
 
 }
