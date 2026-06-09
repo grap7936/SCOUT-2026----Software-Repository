@@ -12,7 +12,7 @@
 
 # Author: Graeme Appel
 
-# Last Updated: 6/8/2026
+# Last Updated: 6/9/2026
 
 ###############################################################
 
@@ -54,6 +54,9 @@ class target:
 
 
 class detector:
+
+    ## We might not need these property definitions in here unless we want to track different object ID's to number them or track them across frames
+    #  but for now I will keep it in because it doesn't effect the overall output or funtionality of the code.
 
     # Class Properties:
     # 1.) next_object_ID = counter variable to keep track of different object ID's later in the scan() function
@@ -121,19 +124,19 @@ class detector:
 
             size = cv2.contourArea(contour) # finds size of each box using contour area of each specific contour. Output is an int or float in square pixels
 
-            if size < 1000: # sets parameter for size to see where contours are made
-                (x, y, w, h) = cv2.boundingRect(contour) # creates dimensions for rectangle to bound object in frame 
+           # UNCOMMENT IF WANTING TO ADD A SIZE LIMIT --> if size < 100: # sets parameter (size limit) for size to see where contours are made
+            (x, y, w, h) = cv2.boundingRect(contour) # creates dimensions for rectangle to bound object in frame 
 
                 # for this code, x = specific x coordinate of every given pixel input; y = specific y coordinate of every given pixel input; w = width of bounding rectangle; h = height of bounding rectangle
                 # Input (x,y) sets the top left corner of the frame at given x, y where both are equal to 0.
                 # Input (x + w, y + h) sets the bottom right corner of the box by adding the total width and height of the object/bounding box frame
                 # Input (0, 255, 0) -- box color is green
                 # Input 2 = linewidth = 2 pixels thick
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)  # defines bounded rectangle
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)  # defines bounded rectangle
                 
                 # Stores all elements of each rectangle x, y, w, h, and size into a dynamic list called box_dim which can be access later when finding necessary variables for the target class in the scan() function
                 # append simply adds each new contour/"object" ot the end of this list so all information for object is stored by index 0 to total # of objects
-                box_dim.append( (x, y, w, h, size) )
+            box_dim.append( (x, y, w, h, size) )
 
 
         return contours, box_dim # returns contours to best identify bounding boxes and identified area that could be objects
@@ -172,7 +175,7 @@ class detector:
             # Note: All parameters that say NONE are either determined in other code or may be future improvements or iterations to this code
             new_target = target(
                     x = x_centr_pos, 
-                    y= y_centr_pos, 
+                    y = y_centr_pos, 
                     size = size, 
                     ID = None, 
                     nx = None, 
