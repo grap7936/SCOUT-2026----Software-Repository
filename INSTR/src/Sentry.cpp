@@ -1,16 +1,17 @@
 #include "Sentry.hpp"
+#include "Detector.hpp"
 
 Sentry::Sentry(int w, int h, float thresh) {
     full_target_list = {};
     prev_targets = {};
     next_targets = {};
-    //Detector detector(&next_targets);
-    Selector selector(w, h, thresh);
+    Detector detector;
+    Selector selector(thresh);
 }
 
 void Sentry::init( cv::Mat frame ) {
     setNextFrame( frame );
-    //detector.scan( frame, &next_targets )
+    detector.scan( frame, next_targets );
 }
 
 void Sentry::pageFrame( cv::Mat frame ) {
@@ -24,7 +25,7 @@ void Sentry::pageFrame( cv::Mat frame ) {
     }
     clearNextTargets();
     //detector.scan( frame, &next_targets )
-    selector.scan(&prev_targets, &next_targets);
+    selector.scan(&prev_targets, &next_targets, &full_target_list);
 
 }
 

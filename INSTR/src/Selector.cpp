@@ -292,10 +292,11 @@ void Selector::updateEstimate() {
  *      void - updates all ids as well as nextInstance and prevInstance 
  *             pointers for targets that exist in both sets.
  */
-void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next ) {
+void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full ) {
 
     setNextTargetsPtr(next);
     setPrevTargetsPtr(prev);
+    setFullTargetListPtr(full);
 
     int prev_size = prev->size();
     int next_size = next->size();

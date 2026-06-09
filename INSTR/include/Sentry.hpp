@@ -15,7 +15,7 @@ public:
     std::vector<Target*> full_target_list;
     std::vector<Target*> prev_targets;
     std::vector<Target*> next_targets;
-    //Detector detector;
+    Detector detector;
     Selector selector;
 
     Sentry(int, int, float);

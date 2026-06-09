@@ -48,7 +48,7 @@ public:
 
     void updateEstimate();
 
-    void scan( std::vector<Target*>*, std::vector<Target*>* );
+    void scan( std::vector<Target*>*, std::vector<Target*>*, std::vector<Target*>* );
 
 };
 
