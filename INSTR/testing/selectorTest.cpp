@@ -5,9 +5,8 @@
 #include "Selector.hpp"
 
 /*  Compile command from INSTR/ directory
-    g++ -I ./include testing/selectorTest.cpp src/Graph.cpp src/Selector.cpp -o selectorTest.out
+    g++ -I ./include -I C:/msys64/ucrt64/include/opencv4 testing/selectorTest.cpp src/Graph.cpp src/Selector.cpp src/Target.cpp -o selectorTest.out -LC:/msys64/ucrt64/lib -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_video -lopencv_videoio -lopencv_imgcodecs -lopencv_objdetect -static
 
-    
     */
 
 int main() {
@@ -22,6 +21,7 @@ int main() {
     std::vector<int> id1_f2 = { 7, 8, 9 };
     std::vector<int> coords1_f2 = { 360,100, 430,460, 150,220 };
     std::vector<Target*> target1_f1 = {};
+    std::vector<Target*> target1_full = {};
     for ( int i = 0; i < id1_f1.size(); i++) {
         target1_f1.push_back( new Target(coords1_f1[2*i], coords1_f1[2*i+1], 1) );
         int x_index = 2*i;
@@ -45,6 +45,7 @@ int main() {
     std::vector<int> id2_f2 = { 27, 28, 29, 30, 31, 32 };
     std::vector<int> coords2_f2 = { 160,300, 530,120, 400,80, 240,10, 10,350, 400,20 };
     std::vector<Target*> target2_f1 = {};
+    std::vector<Target*> target2_full = {};
     for ( int i = 0; i < id2_f1.size(); i++) {
         target2_f1.push_back( new Target(coords2_f1[2*i], coords2_f1[2*i+1], 1) );
         int x_index = 2*i;
@@ -68,6 +69,7 @@ int main() {
     std::vector<int> id3_f2 = { 35, 36, 37, 38, 39 };
     std::vector<int> coords3_f2 = { 130,190, 160,200, 10,300, 20,10, 200,20 };
     std::vector<Target*> target3_f1 = {};
+    std::vector<Target*> target3_full = {};
     for ( int i = 0; i < id3_f1.size(); i++) {
         target3_f1.push_back( new Target(coords3_f1[2*i], coords3_f1[2*i+1], 1) );
         int x_index = 2*i;
@@ -87,13 +89,13 @@ int main() {
     
 
     //test1
-    selector1.scan( &target1_f1, &target1_f2 );
+    selector1.scan( &target1_f1, &target1_f2, &target1_full );
 
     //test2
-    selector2.scan( &target2_f1, &target2_f2 );
+    selector2.scan( &target2_f1, &target2_f2, &target2_full);
 
     //test3
-    selector3.scan( &target3_f1, &target3_f2 );
+    selector3.scan( &target3_f1, &target3_f2, &target3_full );
     
 
 

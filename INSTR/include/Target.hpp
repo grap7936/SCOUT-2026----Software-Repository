@@ -1,10 +1,9 @@
 #ifndef TARGET_HPP
 #define TARGET_HPP
-#include <opencv4/opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 class Graph ; 
 
 class Target {
-
 
 public:
     int id;
@@ -13,6 +12,8 @@ public:
     int nx, ny; 
     float vx, vy;
     float kx, ky;
+    int debris_likelihood;
+    int frame_num;
     Target* next_instance;
     Target* prev_instance;
     Graph* proximity;
@@ -59,6 +60,14 @@ public:
     float getKy();
 
     void setKy(float ky);
+
+    // int getFrameNum();
+
+    // void setFrameNum(int frame_num);
+
+    int getDebrisLikelihood();
+
+    void incDebrisLikelihood();
 
     Target* getNextInstancePtr();
 

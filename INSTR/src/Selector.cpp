@@ -125,6 +125,8 @@ void Selector::connect() {
             (*prev_targets)[j]->next_instance->id = (*prev_targets)[j]->id;
             (*prev_targets)[j]->next_instance->kf = (*prev_targets)[j]->kf;
 
+            (*full_list)[(*prev_targets)[j]->next_instance->id] = (*prev_targets)[j]->next_instance;
+
         }
     }
     
@@ -222,7 +224,7 @@ void Selector::estimateNextState() {
 
         // 2. Define Matrices
         // Transition matrix (Constant Velocity: x = x0 + vx*df, y = y0 + vy*df)
-        int df = 1;
+        float df = 1;
         
         float A[] = {
             1, 0, df, 0,

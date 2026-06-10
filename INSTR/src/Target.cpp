@@ -12,6 +12,8 @@ Target::Target(int x, int y, int size) {
     this->vy = 0;
     this->kx = -1;
     this->ky = -1;
+    this->debris_likelihood = 0;
+    this->frame_num = 0;
     this->next_instance = NULL;
     this->prev_instance = NULL;
     this->proximity = NULL;
@@ -95,6 +97,22 @@ float Target::getKy() {
 
 void Target::setKy(float ky) {
     this->ky = ky;
+}
+
+// int Target::getFrameNum() { 
+//     return this->frame_num;
+// }
+
+// void Target::setFrameNum(int frame_num) {
+//     this->frame_num = frame_num;
+// }
+
+int Target::getDebrisLikelihood() {
+    return debris_likelihood;
+}
+
+void Target::incDebrisLikelihood() {
+    this->debris_likelihood = debris_likelihood + 1;
 }
 
 Target* Target::getNextInstancePtr() {

@@ -2,7 +2,7 @@
 #define SENTRY_HPP
 
 #include <vector>
-#include <opencv4/opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Selector.hpp"
 //#include "Detector.hpp"
@@ -15,6 +15,7 @@ public:
     std::vector<Target*> full_target_list;
     std::vector<Target*> prev_targets;
     std::vector<Target*> next_targets;
+    std::vector<int> target_debris_count;
     Detector detector;
     Selector selector;
 
@@ -26,19 +27,27 @@ public:
 
     void setNextFrame( cv::Mat );
 
+    cv::Mat getNextFrame();
+
     void setPrevFrame( cv::Mat );
 
+    cv::Mat getPrevFrame();
+
     std::vector<int> getTargetCoords( int );
-
-    void appendTarget( Target* );
-
-    void removeTarget( int );
 
     int getNumTargets();
 
     void clearPrevTargets();
 
     void clearNextTargets();
+
+    int findDebris( cv::Mat );
+
+    std::vector<Target*> getRelevantTargets();
+
+    std::vector<float> getMeanTargetVelocity( std::vector<Target*> relevant_targets );
+
+    void updateDebrisLikelihood( std::vector<Target*> relevant_targets );
 };
 
 #endif
