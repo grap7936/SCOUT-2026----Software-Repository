@@ -1,3 +1,5 @@
+#ifndef DETECTOR_HPP
+#define DETECTOR_HPP
 /////////////////////////////////////////////////////////////
 /*
 Code Summary:
@@ -90,3 +92,6 @@ public:
 
     void scan(cv::Mat& frame, std::vector<Target*>& targets);
 };
+
+
+#endif

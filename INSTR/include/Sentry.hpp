@@ -5,7 +5,7 @@
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Selector.hpp"
-//#include "Detector.hpp"
+#include "Detector.hpp"
 
 class Sentry {
 
