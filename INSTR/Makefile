@@ -1,6 +1,6 @@
 # Compiler settings
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++17 -O2 -Iinclude -IC:/msys64/ucrt64/include/opencv4 -g
+CXXFLAGS = -g -Wall -Wextra -std=c++17 -Iinclude -IC:/msys64/ucrt64/include/opencv4
 
 # OpenCV configuration
 OPENCV = $(shell pkg-config --cflags --libs opencv4)
