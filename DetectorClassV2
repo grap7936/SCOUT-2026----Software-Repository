@@ -1,0 +1,271 @@
+###############################################################
+# Code Summary:
+# Takes in a singular image and using member functions this class (and associated functions) helps to find targets in a given input image by first filtering, 
+# then finding different targets and visualizing them with bounding boxes.
+
+# Steps/Member functions overview:
+
+# 1.) filter() --> uses OpenCV pre-processing functions including operations: blur, background subtraction, thresholding, dilating,
+#  and contour framing to prepare any given frame for extracting and identifying contours of moving regions/objects in the next step.
+#  Additionally, for pictures which have areas of distinctly different brightnesses (i.e if the Earth is half in view and space with stars is in 
+# the other half of the view) then we want this filter function to be able to filter out both the overall background noise of the system but also
+#  different background noises for each distinct region to be able to get the SNR for different regions. Thus, the function will find a global/overall 
+# background noise and then determine different noise levels for different determined areas of brightness of the given input image.
+
+# 2.) contours() --> uses either OpenCV function findContours() or other researched method to create a framework/array of different contours
+#  and to create arrays of points and then arrays of contours to help organize original visualization of regions of movement and objects being tracked.
+
+# 3.) scan() --> Note: this will be the "parent" member function of both filter() and contours() and these will run inside of the scan function.
+#  The other functionality of this function besides using the processes defined above for filter() and contours() is creating the memory allocation 
+# for for each instance of the target class that is passed in and identified in each image. Additionally, for each contour make a target and populate
+#  the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c). 
+
+
+###############################################################
+
+# For user: To adjust size input of objects detected, look to and adjust if statement condition in filter function (ctrl f -- size < 100)
+
+# Author: Graeme Appel
+
+# Last Updated: 6/10/2026
+
+###############################################################
+
+# Necessary Libraries
+
+import cv2 # provides access to all OpenCV functions on the computer (provided it is downloaded)
+import numpy as np # provides all embedded numerical functions
+import time # provides all embedded time returning and manipulation functions
+
+
+
+###############################################################
+# Start of Class and UDF definitions/Main Code
+
+class target:
+
+    # Definition of relevant properties:
+    # 1.) x = x position of target in previous camera frame 
+    # 2.) y = y position of  target in previous camera frame  
+    # 3.) size = size in amount of pixels of the detected object 
+    # 4.) ID = each object in every frame will have an object ID which will be tracked and noted across frames. 
+    # 5.) nx = new x position of target in the next camera frame 
+    # 6.) ny = new y position of target in the next camera frame 
+    # 7.) isStar = float between 0.0 and 1.0 where the closer to 1.0 the more likely it is a star
+
+    def __init__(self, x, y, size, ID, nx, ny, isStar):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.ID = ID
+        self.nx = nx
+        self.ny = ny
+        self.isStar = isStar
+
+###############################################################
+
+
+
+
+
+class detector:
+
+    ## We might not need these property definitions in here unless we want to track different object ID's to number them or track them across frames
+    #  but for now I will keep it in because it doesn't effect the overall output or funtionality of the code.
+
+    # Class Properties:
+    # 1.) next_object_ID = counter variable to keep track of different object ID's later in the scan() function
+    # 2.) tracked_objects_centr = stores center point of the object to be able to assign it a given object ID -- { object_id: (x_center, y_center) }
+    # 3.) global_background_noise = property (which is initialized to zero) that will store the overall background noise of an image 
+    # 4.) noise_by_region = stores different noise levels for each distinctly determined region by otsu Thresh in the filtering code. 
+    # This will be used for being able to track targets on a high noise background (i.e if the earth is on the horizon and an object passes 
+    # into the high noise region in front of the earth)
+
+    def __init__(self):
+        self.next_object_ID = 0 
+        self.tracked_objects_centr = {} # curly brackets denote an empty dictionary of the form: { object_id: (x_center, y_center) }
+
+        self.global_background_noise = 0 # this is a property/variable that stores the overall background noise for a given input image. 
+        self.noise_by_region = [] # this property will store a list of background noise values calculated for different regions of any input photo determined with Otsu thresh in the filtering function
+                                  # output will take the form of [x1, x2, x3, .....  nth] where x1 = region 1 average noise, x2 = region 2 average noise e.t.c
+
+
+# Member Functions:
+
+# filter() -- Filter function will later be used in the Scan function so it is placed here first -- explained above
+
+# Function summary: at top of code
+
+# Inputs: 
+# 1.) frame = "newest" frame of the camera view for tracking
+
+# Outputs:
+# 1.) dilated = fully filtered image that is now blurred, black and white, with removed/thresholded pixels that are expanded to most fully identify objects
+
+    def filter(self, frame): # 1st of the inner functions as part of the overall scan function -- passes in 2 frames to get the visual difference for filtering
+            
+        #### Likely don't need this lines but they are kept in for now.
+        # Frames are directly passed in so we can begin by applying background subtraction
+        ### for access if you need to do 2 frames # frame_difference = cv2.absdiff(frame_1, frame_2) # absdiff function acts as a background subtractor simply with 2 images not a videostream 
+
+        fg_mask = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert initial input image to monochrome (i.e grayscale) -- labelled as a foreground mask distinguishing between white and darker pixels
+        blur = cv2.medianBlur(fg_mask, 5) # Applies blur using medianBlur OpenCV function to reduce camera high-frequency noise of the converted grayscale image
+
+        bg_thresh_val, base_mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU) # This thresholding method does not take in a binary input and convert all objects of a given brightness down but instead uses a built in bimodal histogram to determine light and dark spikes in the given monochrome 
+                                                                                                    # picture input and calculates an exact number to input as the binary variance value by finding the most optimal value that minimizes the overlap between light and dark pixels in the monochrome, blurred image input 
+                                                                                                    #  into this line of code.
+                                                                                                    # bg_thresh_val stores the mathematically computed value for the threshold that was determined and input (i.e, if this were binary thresholding this would be the manually input value where pixels are either rounded up or down from to fully white or black pixels)
+                                                                                                    # base_mask stores the actual thresholded image that now has been adjusted from the thresholded value in bg_thresh_val
+
+        # The background/global noise floor of the system is calculated by finding the average pixel brightness (i.e noise) using the OpenCV .mean() function. 
+        # The .mean() function with OpenCV only works on the entirety of a given image and so if we only want to analyze the background/dark space noise of an image then we must subtract the brighter Earth/star/nebula regions in the given photo to effectively determine the global noise.
+        # We already have a monochrome blurred image and a base thresholded mask where the stars and nebulas are close to white. To eliminate these regions to get background noise we must invert the foreground mask to make a background mask where all of the bright areas from before are now black.
+        # Then, by applying this mask/filter and sliding it over the original foreground mask picture, now the areas of background space are now in white and the nebula/earth/star region is now in black. As cv2.mean() only analyzes the average brightness of regions that are white, this effectively analyzes the noise only over the background space region
+
+        bg_mask = cv2.bitwise_not(base_mask) # bitwise_not reverses the colors of the base_mask image from before to make the filter that the foreground mask will have passed over it
+        self.global_background_noise = cv2.mean(fg_mask, mask=bg_mask)[0] # passes the background mask "filter" over the original foregound mask image to analyze the average brightness/noise of just the background space areas.
+                                                                          # Note: for color images, there are 4 separate stored in this command output in the form of [Channel 1, Channel 2, Channel 3, Alpha)] or effectively [R,G,B, alpha]. Thus, for grayscale we only have to output one single value since RGB doesn't matter so the [0] simply means that it will extract the one float value for this parameter.
+
+        # Create a range of distinct light intervals (linearly spaced in this case) to be able to find distinct layers of brightness automatically
+        # CHANGE THIS LINE IF YOU WANT MORE INTERVALS AND MORE DETAILED CONTRAST FOR IMAGE VIEWING!! I.e. change 5 to a greater number for higher clarity
+        intervals = np.linspace(bg_thresh_val, 255, num=5, dtype=np.uint8)[:-1] # note that this code uses the background noise calculated from OTSU as a starting point (initial transition between light and dark regions) and then creates 5 evenly spaced regions between this and pure white to be able to classify them
+                                                                                # the [:-1] is negative slicing which just means it slices off the last number of brightness values to be stored in intervals because in this case the last number is simply total brightness of 255 which is pure white
+
+        # Note that different regions are saved for each separate frame input so if another frame is input into the detector function, it would simply append to the end of the total regions/intervals data collected so we must clear this so it stores it newly for each new image input
+        self.detected_regions_data = []
+
+        region_counter = 1 # the loop after this loops through and does contouring dimensions for each previously identified interval/region inside the code. When looking at each new image, this sets the counter/loop to region 1 again so it loops through all regions identified in the image starting from the beginning
+
+        tracking_mask = np.zeros_like(blur) # the following loop looks at and contours areas of distinct brightness and then draws them back onto a blank canvas. This creates the fully black blank canvas to overlay everything onto
+                                             # zeros_like does this by creating an array of the exact same dimensions as the input blur and makes all the variables inside equal to 0, i.e all black background
+                                             # Note: tracking_mask resets before any of the contour looping so this only resets to a blank canvas for each new frame input
+
+        # brightness level is any given level of pixel brightness determined and stored by the intervals linspace line above.
+        # By looping through each separate brightness level in this loop, the loop applies binary thresholding to turn pixels above a certain intervallic brightness level all white and pixels below that brightness level black.
+        # Then by applying contours, this identified and creates contours and later bounding boxes around all bright objects detected. 
+        # By doing this at multiple brightness levels this means that both the hyper bright background of the Earth can be detected, but also objects passing over the bright background of the Earth along the horizon can also be detected.
+
+        for brightness_level in intervals: # loops through all differing intervallic brightness levels determined above
+
+            _, layer_thresh = cv2.threshold(blur, int(brightness_level), 255, cv2.THRESH_BINARY) # applies binary threshold to each region of distinct brightness (note that int rounds each brightness level to a whole number as binary thresh cannot have a decimal number input)
+
+            contours, _ = cv2.findContours(layer_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE) # finds the contours of each box/shape identified in the white regions of the previous region contour.
+
+            for contour in contours: # nested loop goes through each contour determined for each region and finds the size of objects inside to apply bounding boxes to them
+                size = cv2.contourArea(contour)
+
+                # This size constraint loop is different from the size constraint loop below in the contours function as this loop goes through each different brightness region and draws contours to prepare for bounding boxes to be draw.
+                # Essentially, this allows bounding boxes to be drawn later with the contours function in separate layers so that in high brightness regions, individual objects are distinguished and can have bounding boxes
+                if size < 100:  # Size gate to ignore tiny background speck noise
+                    object_mask = np.zeros_like(blur) # creates blank frame with same dimensions as blurred image
+                    cv2.drawContours(object_mask, [contour], -1, 255, thickness=cv2.FILLED) # draws filled in contours over passed in contours and draws onto the blank region_mask frame
+
+                    object_mean_px = cv2.mean(fg_mask, mask = object_mask)[0] # looks only at the one contour drawn onto the blank canvas from before and gets the average pixel brightness
+
+                    # Copy each individual white contour shape onto our blank canvas called tracking_mask created before
+                    tracking_mask = cv2.bitwise_or(tracking_mask, object_mask) # bitwise_or copies all white pixels onto the 1st input (in this case our tracking mask) and then keeps all white pixels from previous contours copied on
+
+                    # Append all distinct brightness levels of each object identified to the object properties of the detector function so that these can later be used in the scan() member function to differentiate between different object brightnesses
+                    self.detected_regions_data.append(object_mean_px)
+
+        # Placed completely outside of both loops to apply dilated to the image once all of the brightness layers and contours inside of them have been analyzed
+        dilated = cv2.dilate(tracking_mask, None, iterations=2) # Expands white pixels in the previous thresholded image to bridge small gaps in moving white in the foreground that could be detected as objects. This helps to distinguish objects as 1 full object rather than mistakenly identifying them as many tiny objects
+                                                                # This is now done for the OUTER loop for each distinct region of brightness after all the objects in the given region have been processed from the inner for loop
+
+        # Return all different filtered frames if needed for use later. (Note that for this application, likely the final dilated frame is the most filtered and most useful)
+        # returns final filtered, dilated frame for use in contour member function
+        return dilated
+    
+
+
+
+    # contours() -- contours function will later be used in the Scan function so it is placed here first -- explained above
+
+    # Function summary: at top of code
+
+    # Inputs: 
+    # 1.) frame = "newest" frame of the camera view for tracking
+    # 2.) dilated = fully filtered image that is now blurred, black and white, with removed/thresholded pixels that are expanded to most fully identify objects
+
+    # Outputs: 
+    # 1.) contours = final array/vector of contours which are bounded, identified areas that could be objects in the filtered frames
+    # 2.) box_dim = list of box dimensions for each contour formed in the contour function such as x and y position and
+
+
+    def contours(self, frame, dilated):   # passes in dilated frame as well as previous 2 stored frames from the system to begin forming contours
+
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # defines contours 
+        # RETR_EXTERNAL -- external retrieval. This addition means that pixels only on the outside of objects are detected but not any holes or other things inside of full objects
+        # CHAIN_APPROX_SIMPLE -- stores coordinate points to remember the shape of each contour boundary. In this case, the APPROX means it does not store every pixel but intead removes all redundant data points along straight lines
+
+        # create empty list for box dimensions (box_dim) to be able to store above variables (x, y, w, h)
+        box_dim = []
+
+        ####### NOTE! WE might add in more parameters to filter which objects are put into the contours array -- for example, for right now it is only sifting through things based off of size constraints
+        # Note for the contours array, it stores a contour implicitly as each element in the array which is what has the box and information pertaining to each detected "object" in a given frame. Thus, contours is an array of different detected objects
+        for contour in contours:
+
+            size = cv2.contourArea(contour) # finds size of each box using contour area of each specific contour. Output is an int or float in square pixels
+
+# UNCOMMENT IF WANTING TO ADD A SIZE LIMIT -->
+            #if size < 500: # sets parameter (size limit) for size to see where contours are made
+            (x, y, w, h) = cv2.boundingRect(contour) # creates dimensions for rectangle to bound object in frame 
+
+            # for this code, x = specific x coordinate of every given pixel input; y = specific y coordinate of every given pixel input; w = width of bounding rectangle; h = height of bounding rectangle
+            # Input (x,y) sets the top left corner of the frame at given x, y where both are equal to 0.
+            # Input (x + w, y + h) sets the bottom right corner of the box by adding the total width and height of the object/bounding box frame
+            # Input (0, 255, 0) -- box color is green
+            # Input 2 = linewidth = 2 pixels thick
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)  # defines bounded rectangle
+                
+            # Stores all elements of each rectangle x, y, w, h, and size into a dynamic list called box_dim which can be access later when finding necessary variables for the target class in the scan() function
+            # append simply adds each new contour/"object" ot the end of this list so all information for object is stored by index 0 to total # of objects
+            box_dim.append( (x, y, w, h, size) )
+
+        return contours, box_dim # returns contours to best identify bounding boxes and identified area that could be objects
+            
+
+# scan() -- "parent" function of the previous two member functions
+
+# Function summary: filter() and contours() both run for each set of two frames but then immediately forget all the information
+#  passed and calculated so we must set up a memory system to track and store objects and assign dimensions pertaining to the target 
+# class such as x and y position of "past frame"/frame_1, object size, object ID, and new x and y position of the "new frame"/frame_2.
+
+# Inputs:
+# 1.) frame = "newest" frame of the camera view for tracking
+
+# Outputs: 
+# 1.) targets = list of targets detected in each 
+
+
+    def scan(self, frame):
+          
+        # Call filter()
+        frame_dilated = self.filter(frame)
+
+        # Call contours() to get contours and box_dimensions of the image
+        contours, box_dim = self.contours(frame, frame_dilated)
+
+        # Define list of target objects that will be filled with necessary parameters later
+        targets = []
+
+        # Loop through all box dimensions to extract needed values to input into the target class
+        for (x, y, w, h, size) in box_dim:
+            x_centr_pos = int(x + w/2) # apply basic centroiding to find centroid coordinates of each detected "object"
+            y_centr_pos = int(y + h/2)
+
+            # Create each new instance of the target class putting in the necessary parameters of centroided x and y position and size
+            # Note: All parameters that say NONE are either determined in other code or may be future improvements or iterations to this code
+            new_target = target(
+                    x = x_centr_pos, 
+                    y = y_centr_pos, 
+                    size = size, 
+                    ID = None, 
+                    nx = None, 
+                    ny = None, 
+                    isStar = None
+                )
+            
+            targets.append(new_target) # add each new target to the before defined list of targets 
+
+        return targets
