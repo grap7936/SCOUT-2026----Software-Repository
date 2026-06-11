@@ -11,7 +11,7 @@
 int main() {
 
     std::vector<int> id1 = { 2, 3, 4, 5, 6, 7, 8, 9 };
-    std::vector<float> weight1 = { 0.05,  0.12, 0.45, 0.23, 0.87, 0.65, 0.53, 0.44 };
+    std::vector<int> weight1 = { 44, 53, 65, 87, 23, 45, 12, 5 };
     std::vector<Target*> target1 = {};
     for ( int i = 0; i < id1.size(); i++) {
         target1.push_back( new Target(0, 0, 0) );
@@ -19,7 +19,7 @@ int main() {
     }
 
     std::vector<int> id2 = { 45, 46, 54, 55, 56, 62 };
-    std::vector<float> weight2 = {0.01, 0.30, 0.52, 0.69, 0.69, 0.92 };
+    std::vector<int> weight2 = { 92, 69, 69, 52, 30, 1 };
     std::vector<Target*> target2 = {};
     for ( int i = 0; i < id2.size(); i++) {
         target2.push_back( new Target(0, 0, 0) );
@@ -61,7 +61,6 @@ int main() {
         int index = target1.size() -1;
         delete target1[index];
         target1.pop_back();
-        test1.~Graph();
     }
 
     // test2
@@ -69,7 +68,6 @@ int main() {
         int index = target2.size() -1;
         delete target2[index];
         target2.pop_back();
-        test2.~Graph();
     }
 
     return 0;
