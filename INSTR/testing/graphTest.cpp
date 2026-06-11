@@ -15,7 +15,7 @@ int main() {
     std::vector<Target*> target1 = {};
     for ( int i = 0; i < id1.size(); i++) {
         target1.push_back( new Target(0, 0, 0) );
-        target1.at(target1.size())->setID(id1[i]);
+        target1.at(target1.size()-1)->setID(id1[i]);
     }
 
     std::vector<int> id2 = { 45, 46, 54, 55, 56, 62 };
@@ -23,7 +23,7 @@ int main() {
     std::vector<Target*> target2 = {};
     for ( int i = 0; i < id2.size(); i++) {
         target2.push_back( new Target(0, 0, 0) );
-        target2.at(target2.size())->setID(id2[i]);
+        target2.at(target2.size()-1)->setID(id2[i]);
     }
 
     //test1

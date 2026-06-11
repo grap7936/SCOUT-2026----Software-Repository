@@ -46,12 +46,45 @@ void Selector::initTarget( Target* new_target ) {
     int ctrlDim = 0;
     
     cv::KalmanFilter* KF = new cv::KalmanFilter(stateDim, measDim, ctrlDim, CV_32F);
-    new_target->kf = KF;
+
+    // 2. Define Matrices
+    // Transition matrix (Constant Velocity: x = x0 + vx*df, y = y0 + vy*df)
+    // float df = 1;
+    
+    // float A[] = {
+    //     1, 0, df, 0,
+    //     0, 1, 0, df,
+    //     0, 0, 1, 0,
+    //     0, 0, 0, 1
+    // };
+    // KF->transitionMatrix = cv::Mat(4, 4, CV_32F, A);
+    KF->transitionMatrix = (cv::Mat_(4,4, CV_32F) << 1,0,1,0, 0,1,0,1, 0,0,1,0, 0,0,0,1);
+
+    // Measurement matrix (We measure the position directly)
+    // float H[] = {
+    //     1, 0, 0, 0,
+    //     0, 1, 0, 0
+    // };
+    // KF->measurementMatrix = cv::Mat(2, 4, CV_32F, H);
+    KF->measurementMatrix = (cv::Mat_(2,4, CV_32F) << 1,0,0,0, 0,1,0,0);
+
+    // 3. Set Noise Covariances
+    // Process noise (system uncertainty)
+    setIdentity(KF->processNoiseCov, cv::Scalar::all(1e-4));
+    // Measurement noise (optical detection noise)
+    setIdentity(KF->measurementNoiseCov, cv::Scalar::all(1e-1));
+    // Posteriori error estimate covariance
+    setIdentity(KF->errorCovPost, cv::Scalar::all(1));
+
     // Initial state setup
-    KF->statePost.at<float>(0) = new_target->x; // Initial X
-    KF->statePost.at<float>(1) = new_target->y; // Initial Y
-    KF->statePost.at<float>(2) = 0;   // Initial Vx
-    KF->statePost.at<float>(3) = 0;   // Initial Vy
+    // KF->statePost = cv::Mat_(4,1, CV_32F);
+    // KF->statePost.at<float>(0) = new_target->x; // Initial X
+    // KF->statePost.at<float>(1) = new_target->y; // Initial Y
+    // KF->statePost.at<float>(2) = 0;   // Initial Vx
+    // KF->statePost.at<float>(3) = 0;   // Initial Vy
+    KF->statePost = (cv::Mat_(4,1, CV_32F) << new_target->x, new_target->y, 0.0, 0.0);
+
+    new_target->kf = KF;
 }
 
 /* Function weight( Target* root )
@@ -101,32 +134,47 @@ void Selector::weight( Target* root ) {
  *             proximity value exceeds 'threshold' (see Constructor).
  */
 void Selector::connect() {
-    int size = prev_targets->size();
+    int prev_size = prev_targets->size();
+    int next_size = next_targets->size();
+
+    std::vector<bool> next_targets_used = {};
+    for (int i = 0; i < next_targets->size(); i++) {
+        next_targets_used.push_back ( 0 );
+    }
 
     std::vector<std::vector<int>> proximity_matrix;
 
-    for ( int i = 0; i < size; i++ ) {
+    for ( int i = 0; i < prev_size; i++ ) {
         proximity_matrix.push_back( (*prev_targets)[i]->proximity->weight );
     }
 
     std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
 
-    int mat_size = col_from_row.size();
-
-    for ( int j = 0; j < mat_size; j++ ) {
+    for ( int j = 0; j < prev_size; j++ ) {
         int connect_index = col_from_row[j];
+        if ( connect_index > next_size-1 ) {
+            continue;
+        }
 
         if ( (*prev_targets)[j]->proximity->getVertexWeight(connect_index) > threshold ) {
-            initTarget((*prev_targets)[j]);
+            initTarget((*prev_targets)[j]->proximity->getVertexPtr(connect_index));
+            next_targets_used[connect_index] = 1;
             continue;
         } else {
             (*prev_targets)[j]->next_instance = (*prev_targets)[j]->proximity->getVertexPtr(connect_index);
             (*prev_targets)[j]->next_instance->prev_instance = (*prev_targets)[j];
             (*prev_targets)[j]->next_instance->id = (*prev_targets)[j]->id;
             (*prev_targets)[j]->next_instance->kf = (*prev_targets)[j]->kf;
-
+            next_targets_used[connect_index] = 1;
             (*full_list)[(*prev_targets)[j]->next_instance->id] = (*prev_targets)[j]->next_instance;
 
+        }
+    }
+    for (int i = 0; i < next_targets->size(); i++) {
+        if ( next_targets_used[i] == true ) {
+            continue;
+        } else {
+            initTarget((*next_targets)[i]);
         }
     }
     
@@ -147,6 +195,17 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
     
     int n = cost_matrix.size();
     int m = cost_matrix[0].size(); // Works for rectangular matrices where n <= m
+
+    if ( n > m ) {
+        for (int i = 0; i < n-m; i++) {
+            for (int j = 0; j < n; j++) {
+                cost_matrix[j].push_back( INF );
+            }
+        }
+        m = cost_matrix[0].size();
+    }
+
+    
     
     // Potentials for rows (u) and columns (v)
     std::vector<int> u(n + 1, 0), v(m + 1, 0);
@@ -222,37 +281,10 @@ void Selector::estimateNextState() {
 
         cv::KalmanFilter* KF = target->kf;
 
-        // 2. Define Matrices
-        // Transition matrix (Constant Velocity: x = x0 + vx*df, y = y0 + vy*df)
-        float df = 1;
-        
-        float A[] = {
-            1, 0, df, 0,
-            0, 1, 0, df,
-            0, 0, 1, 0,
-            0, 0, 0, 1
-        };
-        KF->transitionMatrix = cv::Mat(4, 4, CV_32F, A);
-
-        // Measurement matrix (We measure the position directly)
-        float H[] = {
-            1, 0, 0, 0,
-            0, 1, 0, 0
-        };
-        KF->measurementMatrix = cv::Mat(2, 4, CV_32F, H);
-
-        // 3. Set Noise Covariances
-        // Process noise (system uncertainty)
-        setIdentity(KF->processNoiseCov, cv::Scalar::all(1e-4));
-        // Measurement noise (optical detection noise)
-        setIdentity(KF->measurementNoiseCov, cv::Scalar::all(1e-1));
-        // Posteriori error estimate covariance
-        setIdentity(KF->errorCovPost, cv::Scalar::all(1));
-
         cv::Mat prediction = KF->predict();
 
-        target->nx = prediction.at<int>(0);
-        target->ny = prediction.at<int>(1);
+        target->nx = prediction.at<float>(0,0);
+        target->ny = prediction.at<float>(1,0);
 
     }  
         
@@ -307,11 +339,12 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
             initTarget((*next)[i]);
         }
     } else {
+
+        estimateNextState();
+
         for ( int i = 0; i < prev_size; i++) {
             weight( (*prev)[i] );
         }
-
-        estimateNextState();
 
         connect();
 
