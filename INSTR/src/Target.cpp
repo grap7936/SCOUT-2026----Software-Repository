@@ -14,9 +14,9 @@ Target::Target(int x, int y, int size) {
     this->ky = -1;
     this->debris_likelihood = 0;
     this->frame_num = 0;
-    this->next_instance = NULL;
-    this->prev_instance = NULL;
-    this->proximity = NULL;
+    this->next_instance = nullptr;
+    this->prev_instance = nullptr;
+    this->proximity = nullptr;
 }
 
 int Target::getID() {

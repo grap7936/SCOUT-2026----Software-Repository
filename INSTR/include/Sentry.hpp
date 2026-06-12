@@ -19,13 +19,19 @@ public:
     Detector detector;
     Selector selector;
 
-    Sentry(int, int, float);
+    Sentry(int);
 
     void init( cv::Mat );
 
     void pageFrame( cv::Mat );
 
     void setNextFrame( cv::Mat );
+
+    std::vector<Target*>* getFullListPtr();
+
+    std::vector<Target*>* getPrevTargetPtr();
+
+    std::vector<Target*>* getNextTargetPtr();
 
     cv::Mat getNextFrame();
 
@@ -41,7 +47,7 @@ public:
 
     void clearNextTargets();
 
-    int findDebris( cv::Mat );
+    int findDebris( cv::Mat, int);
 
     std::vector<Target*> getRelevantTargets();
 

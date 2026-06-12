@@ -1,192 +1,206 @@
 #include <Selector.hpp>
 
-// Constructor
+// Constructor with custom proximity threshold
 Selector::Selector( int thresh ) {
     threshold = thresh;
 }
 
-// default Constructor
+// Default constructor (threshold = 1000)
 Selector::Selector() {
     threshold = 1000;
 }
 
+// Returns a pointer to the previous frame's targets vector
 std::vector<Target*>* Selector::getPrevTargetsPtr() {
     return prev_targets;
 }
 
+// Sets the pointer tracking the previous frame's targets vector
 void Selector::setPrevTargetsPtr( std::vector<Target*>* new_ptr ) {
     prev_targets = new_ptr;
 }
 
+// Returns a pointer to the next frame's targets vector
 std::vector<Target*>* Selector::getNextTargetsPtr() {
     return next_targets;
 }
 
+// Sets the pointer tracking the master target tracking history list
 void Selector::setFullTargetListPtr( std::vector<Target*>* new_ptr ) {
     full_list = new_ptr;
 }
 
+// Returns a pointer to the master target tracking history list
 std::vector<Target*>* Selector::getFullTargetListPtr() {
     return full_list;
 }
 
+// Sets the pointer tracking the next frame's targets vector
 void Selector::setNextTargetsPtr( std::vector<Target*>* new_ptr ) {
     next_targets = new_ptr;
 }
 
+/* Function initTarget( Target* new_target )
+ * description:
+ * Assigns a unique ID to a new target, adds it to the full list, and initializes its 4D Kalman Filter tracking engine.
+ * inputs:
+ * Target* new_target - pointer to the uninitialized target.
+ * returns:
+ * void - updates fields within new_target and appends it to full_list.
+ */
 void Selector::initTarget( Target* new_target ) {
 
+    // Assign a unique ID based on the current number of tracked targets, then store it
     new_target->id = full_list->size();
     full_list->push_back(new_target);
-    // Initialize Kalman Filter
-    // State: [x, y, vx, vy]^T -> 4 dimensions
-    // Measurement: [x, y] -> 2 dimensions
+
+    // Initialize Kalman Filter parameters
+    // State vector: [x, y, vx, vy]^T -> 4 dimensions (Position & Velocity)
+    // Measurement vector: [x, y]     -> 2 dimensions (Observed Camera Coordinates)
     int stateDim = 4;
     int measDim = 2;
     int ctrlDim = 0;
     
     cv::KalmanFilter* KF = new cv::KalmanFilter(stateDim, measDim, ctrlDim, CV_32F);
 
-    // 2. Define Matrices
-    // Transition matrix (Constant Velocity: x = x0 + vx*df, y = y0 + vy*df)
-    // float df = 1;
-    
-    // float A[] = {
-    //     1, 0, df, 0,
-    //     0, 1, 0, df,
-    //     0, 0, 1, 0,
-    //     0, 0, 0, 1
-    // };
-    // KF->transitionMatrix = cv::Mat(4, 4, CV_32F, A);
+    // Define the State Transition Matrix (A) assuming a constant velocity model:
+    // x_next  = 1*x  + 0*y  + 1*vx + 0*vy
+    // y_next  = 0*x  + 1*y  + 0*vx + 1*vy
+    // vx_next = 0*x  + 0*y  + 1*vx + 0*vy
+    // vy_next = 0*x  + 0*y  + 0*vx + 1*vy
     KF->transitionMatrix = (cv::Mat_(4,4, CV_32F) << 1,0,1,0, 0,1,0,1, 0,0,1,0, 0,0,0,1);
 
-    // Measurement matrix (We measure the position directly)
-    // float H[] = {
-    //     1, 0, 0, 0,
-    //     0, 1, 0, 0
-    // };
-    // KF->measurementMatrix = cv::Mat(2, 4, CV_32F, H);
+    // Define Measurement Matrix (H) to isolate observed variables:
+    // Extracts directly measured position [x, y] from the 4D state vector
     KF->measurementMatrix = (cv::Mat_(2,4, CV_32F) << 1,0,0,0, 0,1,0,0);
 
-    // 3. Set Noise Covariances
-    // Process noise (system uncertainty)
+    // Tune filter noise models
+    // Process noise covariance (Q): Model minor variations in movement physics
     setIdentity(KF->processNoiseCov, cv::Scalar::all(1e-4));
-    // Measurement noise (optical detection noise)
+    // Measurement noise covariance (R): Account for raw camera detection variance
     setIdentity(KF->measurementNoiseCov, cv::Scalar::all(1e-1));
-    // Posteriori error estimate covariance
+    // Posteriori error estimate covariance (P): High starting uncertainty for new track
     setIdentity(KF->errorCovPost, cv::Scalar::all(1));
 
-    // Initial state setup
-    // KF->statePost = cv::Mat_(4,1, CV_32F);
-    // KF->statePost.at<float>(0) = new_target->x; // Initial X
-    // KF->statePost.at<float>(1) = new_target->y; // Initial Y
-    // KF->statePost.at<float>(2) = 0;   // Initial Vx
-    // KF->statePost.at<float>(3) = 0;   // Initial Vy
+    // Seed the filter with the initial position coordinates; velocity begins at 0.0
     KF->statePost = (cv::Mat_(4,1, CV_32F) << new_target->x, new_target->y, 0.0, 0.0);
 
+    // Link the filter instance directly onto the target object payload
     new_target->kf = KF;
 }
 
 /* Function weight( Target* root )
  * description:
- *      Creates and populates a proximity graph for a provided root target.
- *      Calculates the distance to each target in nextTargets[]
- *      from the provided root target.
+ * Creates and populates a proximity graph for a provided root target.
+ * Calculates the distance to each target in nextTargets[] from the provided root target.
  * inputs:
- *      Target* root - pointer to a single target to compare to (from prevTargets[]).
+ * Target* root - pointer to a single target to compare to (from prevTargets[]).
  * returns:
- *      void - sets the root.proximity pointer to a created proximity graph
+ * void - sets the root.proximity pointer to a created proximity graph
  */
 void Selector::weight( Target* root ) {
 
-    // populate graph
+    // Instantiate a new tracking weight graph anchored to the root target's ID
     Graph* graph = new Graph(root->id);
-    for (int i = 0; i < next_targets->size(); i++) {
-        // find normalized distance to x,y
+
+    // Evaluate physical spacing between the root and every target found in the incoming frame
+    for (size_t i = 0; i < next_targets->size(); i++) {
+        
+        // Step 1: Compute distance between previous known position and next raw position
         int dx = root->x - (*next_targets)[i]->x;
         int dy = root->y - (*next_targets)[i]->y;
         float norm1 = sqrt( pow(dx, 2) + pow(dy, 2) );
-        int weight1 = norm1*10;
+        int weight1 = norm1 * 10; // Scaling factor for cost matrix compliance
 
-        // find normalized distance to nx,ny
+        // Step 2: Compute distance between Kalman predicted position (nx, ny) and next raw position
         int dnx = root->nx - (*next_targets)[i]->x;
         int dny = root->ny - (*next_targets)[i]->y;
         float norm2 = sqrt( pow(dnx, 2) + pow(dny, 2) );
-        int weight2 = norm2*10;
+        int weight2 = norm2 * 10;
 
-        graph->addVertex( (*next_targets)[i], weight1+weight2 );
-
+        // Composite cost combines actual past offset and projected tracking path proximity
+        graph->addVertex( (*next_targets)[i], weight1 + weight2 );
     }
 
+    // Assign the completed graph weights onto the root node for match parsing
     root->proximity = graph;
-
 }
 
 /* Function connect()
  * description:
- *      Connects all related targets from prevTargets[] and nextTargets[].
+ * Connects all related targets from prevTargets[] and nextTargets[].
  * inputs:
- *      none
+ * none
  * returns:
- *      void - sets Target.nextInstance pointers for targets in prevTargets[].
- *           - sets Target.prevInstance pointers for targets in nextTargets[].
- *           - updates Target.id values for targets in nextTargets[] whose
- *             proximity value exceeds 'threshold' (see Constructor).
+ * void - sets Target.nextInstance pointers for targets in prevTargets[].
+ * - sets Target.prevInstance pointers for targets in nextTargets[].
+ * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'threshold' (see Constructor).
  */
 void Selector::connect() {
     int prev_size = prev_targets->size();
     int next_size = next_targets->size();
 
+    // Allocation tracking bitset to map which prospective destinations have been locked
     std::vector<bool> next_targets_used = {};
-    for (int i = 0; i < next_targets->size(); i++) {
+    for (size_t i = 0; i < next_targets->size(); i++) {
         next_targets_used.push_back ( 0 );
     }
 
+    // Build the 2D linear assignment matrix (Rows = Previous targets, Columns = Next targets)
     std::vector<std::vector<int>> proximity_matrix;
-
     for ( int i = 0; i < prev_size; i++ ) {
         proximity_matrix.push_back( (*prev_targets)[i]->proximity->weight );
     }
 
+    // Execute Hungarian Optimizer to discover the globally minimized cost association path
     std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
 
+    // Evaluate associations assigned to each historical trace entry
     for ( int j = 0; j < prev_size; j++ ) {
         int connect_index = col_from_row[j];
-        if ( connect_index > next_size-1 ) {
+        
+        // Safeguard matching outputs against structural rectangular padding indexes
+        if ( connect_index > next_size - 1 ) {
             continue;
         }
 
+        // Branching check: If error variance exceeds threshold, do not connect
         if ( (*prev_targets)[j]->proximity->getVertexWeight(connect_index) > threshold ) {
-            initTarget((*prev_targets)[j]->proximity->getVertexPtr(connect_index));
-            next_targets_used[connect_index] = 1;
             continue;
         } else {
+            // Valid track association: Tie linked lists together across frames
             (*prev_targets)[j]->next_instance = (*prev_targets)[j]->proximity->getVertexPtr(connect_index);
             (*prev_targets)[j]->next_instance->prev_instance = (*prev_targets)[j];
+            
+            // Forward identity attributes down the matched track line
             (*prev_targets)[j]->next_instance->id = (*prev_targets)[j]->id;
             (*prev_targets)[j]->next_instance->kf = (*prev_targets)[j]->kf;
+            
+            // Mark destination node as handled
             next_targets_used[connect_index] = 1;
+            
+            // Overwrite master registry pointer to point to the newest active instance
             (*full_list)[(*prev_targets)[j]->next_instance->id] = (*prev_targets)[j]->next_instance;
+        }
+    }
 
-        }
-    }
-    for (int i = 0; i < next_targets->size(); i++) {
+    // Cleanup pass: Unassigned elements in the new frame are spawned as fresh tracking sources
+    for (size_t i = 0; i < next_targets->size(); i++) {
         if ( next_targets_used[i] == true ) {
-            continue;
+            continue; // Node already successfully bound to a previous path
         } else {
-            initTarget((*next_targets)[i]);
+            initTarget((*next_targets)[i]); // Brand new detection, initialize path history
         }
     }
-    
 }
 
 /* Function hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix )
  * description:
- *      Implementation of a hungarian algorithm to match prev_targets to next_targets
+ * Implementation of a hungarian algorithm to match prev_targets to next_targets
  * inputs:
- *      std::vector<std::vector<int>> cost_matrix - 2D vector matrix of prevTarget->proximity values
+ * std::vector<std::vector<int>> cost_matrix - 2D vector matrix of prevTarget->proximity values
  * returns:
- *      std::vector<int> - a vector where result[i] contains the column index assigned to row i
+ * std::vector<int> - a vector where result[i] contains the column index assigned to row i
  */
 std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cost_matrix ) {
     if (cost_matrix.empty()) return {};
@@ -196,6 +210,7 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
     int n = cost_matrix.size();
     int m = cost_matrix[0].size(); // Works for rectangular matrices where n <= m
 
+    // Rectangular processing: Pad out columns if rows outnumber columns to preserve sizing constraints
     if ( n > m ) {
         for (int i = 0; i < n-m; i++) {
             for (int j = 0; j < n; j++) {
@@ -205,8 +220,6 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
         m = cost_matrix[0].size();
     }
 
-    
-    
     // Potentials for rows (u) and columns (v)
     std::vector<int> u(n + 1, 0), v(m + 1, 0);
     // Tracks assignments: p[j] = i means column j is assigned to row i
@@ -214,18 +227,21 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
     // Tracks the minimum delta for each column during BFS step
     std::vector<int> way(m + 1, 0);
 
+    // Main optimization loop iterating across each individual row element matrix frame
     for (int i = 1; i <= n; ++i) {
         p[0] = i;
         int min_in_row = 0;
         std::vector<int> min_v(m + 1, INF);
         std::vector<bool> used(m + 1, false);
         
+        // Execute shortest augmenting path generation
         do {
             used[min_in_row] = true;
             int current_row = p[min_in_row];
             int delta = INF;
             int next_column = 0;
             
+            // Loop updates row vectors to find minimal cost delta columns
             for (int j = 1; j <= m; ++j) {
                 if (!used[j]) {
                     // Calculate current reduced cost
@@ -241,7 +257,7 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
                 }
             }
             
-            // Update potentials
+            // Update dual variables/potentials along the tracked path step
             for (int j = 0; j <= m; ++j) {
                 if (used[j]) {
                     u[p[j]] += delta;
@@ -253,7 +269,7 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
             min_in_row = next_column;
         } while (p[min_in_row] != 0);
         
-        // Remap alternating path
+        // Remap alternating path back through tracking traces to establish link chains
         do {
             int previous_column = way[min_in_row];
             p[min_in_row] = p[previous_column];
@@ -271,86 +287,111 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
     return assignment;
 }
 
+/* Function estimateNextState()
+ * description:
+ * Runs the linear prediction step of the Kalman filter for all active targets tracked in the previous frame to project their next locations.
+ * inputs:
+ * none
+ * returns:
+ * void - populates fields nx and ny for each target within prev_targets.
+ */
 void Selector::estimateNextState() {
 
+    // Break early if no historical entities exist to project forwards
     if ( prev_targets->size() == 0 ) { return; }
 
-    for (int i = 0; i < prev_targets->size(); i++) {
+    // Propagate all elements into their projected state windows
+    for (size_t i = 0; i < prev_targets->size(); i++) {
 
         Target* target = (*prev_targets)[i];
-
         cv::KalmanFilter* KF = target->kf;
 
+        // Advance state tracking equations forward in time (Prediction stage)
         cv::Mat prediction = KF->predict();
 
-        target->nx = prediction.at<float>(0,0);
-        target->ny = prediction.at<float>(1,0);
-
+        // Extract projected location predictions and store inside node properties
+        target->nx = prediction.at<float>(0,0); // Predicted X position coordinate
+        target->ny = prediction.at<float>(1,0); // Predicted Y position coordinate
     }  
-        
 }
 
+/* Function updateEstimate()
+ * description:
+ * Executes the measurement update step of the Kalman Filter using new camera data, refining tracking positions and resolving velocities for matched active instances.
+ * inputs:
+ * none
+ * returns:
+ * void - updates target fields (kx, ky) and speed calculations (vx, vy).
+ */
 void Selector::updateEstimate() {
-    for (int i = 0; i < next_targets->size(); i++) {
+    
+    // Cycle active listings to reconcile real visual measurements against filter predictions
+    for (size_t i = 0; i < next_targets->size(); i++) {
         Target* target = (*next_targets)[i];
-        if ( target->prev_instance != NULL ) {
-            // Camera measurement
-            cv::Mat measurement = cv::Mat::zeros(2, 1, CV_32F);
+        
+        // Only run filter corrections if this node is verified to continue an existing path
+        if ( target->prev_instance != nullptr ) {
             
+            // Format incoming visual tracking hits into standard OpenCV structural containers
+            cv::Mat measurement = cv::Mat::zeros(2, 1, CV_32F);
             measurement.at<float>(0) = target->x;
             measurement.at<float>(1) = target->y;
 
-            // corrected estimate of original x,y in prev_target
+            // Execute Measurement Correction Step (Correct stage) to balance prediction vs observations
             cv::Mat estimated = target->kf->correct(measurement);
-            target->kx = estimated.at<float>(0);
-            target->ky = estimated.at<float>(1);
-            target->vx = estimated.at<float>(2);
-            target->vy = estimated.at<float>(3);
+            
+            // Unpack optimal state estimations onto target memory fields
+            target->kx = estimated.at<float>(0); // Optimal calculated position X
+            target->ky = estimated.at<float>(1); // Optimal calculated position Y
+            target->vx = estimated.at<float>(2); // Smoothed velocity component X
+            target->vy = estimated.at<float>(3); // Smoothed velocity component Y
         }
-        
     }
 }
 
-
-/* Function scan( vector<Target*>* prev, vector<Target*>* next )
+/* Function scan( vector<Target*>* prev, vector<Target*>* next, vector<Target*>* full )
  * description:
- *      Scans all targets from prevTargets[] and nextTargets[] to determine 
- *      which targets exist across both sets.
- *      Updates target ids for related targets and connects LL pointers.
+ * Scans all targets from prevTargets[] and nextTargets[] to determine which targets exist across both sets. 
+ * Updates target ids for related targets and connects data pointers.
  * inputs:
- *      vector<Target*>* prev - pointer to vector of Target pointers to targets 
- *                              in 'previous' frame
- *      vector<Target*>* next - pointer to vector of Target pointers to targets 
- *                              in 'next' frame
+ * vector<Target*>* prev - pointer to vector of Target pointers in 'previous' frame
+ * vector<Target*>* next - pointer to vector of Target pointers in 'next' frame
+ * vector<Target*>* full - pointer to the global master registry vector tracking all targets
  * returns:
- *      void - updates all ids as well as nextInstance and prevInstance 
- *             pointers for targets that exist in both sets.
+ * void - updates all ids as well as nextInstance and prevInstance pointers for targets that exist in both sets.
  */
 void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full ) {
 
+    // Cache structural parameters safely locally within class state pointers
     setNextTargetsPtr(next);
     setPrevTargetsPtr(prev);
     setFullTargetListPtr(full);
 
     int prev_size = prev->size();
     int next_size = next->size();
+    
+    // Scenario A: Initial execution window or zero items tracked previously
     if ( prev_size == 0 ) {
+        // Automatically initialize all entities observed as fresh tracks
         for (int i = 0; i < next_size; i++) {
             initTarget((*next)[i]);
         }
-    } else {
+    } 
+    // Scenario B: Active tracking history engine path is running
+    else {
 
+        // Phase 1: Advance historical tracking equations forward to match current time frame
         estimateNextState();
 
+        // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
         for ( int i = 0; i < prev_size; i++) {
             weight( (*prev)[i] );
         }
 
+        // Phase 3: Solve the cost allocation problem and update node linking identities
         connect();
 
+        // Phase 4: Correct Kalman track matrices using real optical observations
         updateEstimate();
     }
-
-      
-
 }

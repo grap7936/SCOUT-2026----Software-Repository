@@ -1,9 +1,9 @@
 # Compiler settings
-CXX = g++
+CXX = C:/msys64/ucrt64/bin/g++.exe
 CXXFLAGS = -g -Wall -Wextra -std=c++17 -Iinclude -IC:/msys64/ucrt64/include/opencv4
 
-# OpenCV configuration
-OPENCV = $(shell pkg-config --cflags --libs opencv4)
+# OpenCV configuration 
+OPENCV = -LC:/msys64/ucrt64/lib -lopencv_highgui -lopencv_videoio -lopencv_imgcodecs -lopencv_video -lopencv_imgproc -lopencv_core
 
 # Library source files
 SRC = $(wildcard src/*.cpp)
@@ -11,6 +11,7 @@ OBJ = $(SRC:.cpp=.o)
 
 # Main application
 MAIN = main.cpp
+MAIN_OBJ = main.o
 TARGET = bin/main
 
 # Test files
@@ -22,18 +23,22 @@ TESTS = $(patsubst testing/%.cpp,bin/%,$(TEST_SRC))
 all: directories $(TARGET) tests
 
 
-# Build main executable
-$(TARGET): $(MAIN) $(OBJ)
+# Build main executable (Fixed linking order and main compilation)
+$(TARGET): $(MAIN_OBJ) $(OBJ)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(OPENCV)
+
+# Explicitly compile main.cpp to main.o
+$(MAIN_OBJ): $(MAIN)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 
 # Build all tests
 tests: $(TESTS)
 
 
-# Build individual test executables
+# Build individual test executables (Fixed linking order)
 bin/%: testing/%.cpp $(OBJ)
-	$(CXX) $(CXXFLAGS) $< $(OBJ) -o $@ $(OPENCV)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(OPENCV)
 
 
 # Compile source files into object files
@@ -42,16 +47,16 @@ src/%.o: src/%.cpp
 
 
 # Create output directory
-directories:
-	mkdir -p bin
+directories: # for linux
+# mkdir -p bin
 
 
 # Remove generated files
 clean:
 # for linux
-# rm -f src/*.o
+# rm -f src/*.o main.o
 # for windows
-	del /q /f src\*.o
+	del /q /f src\*.o main.o
 
 
 .PHONY: all clean tests directories
