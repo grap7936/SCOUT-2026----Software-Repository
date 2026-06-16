@@ -13,7 +13,7 @@ the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c).
 
 Author: Graeme Appel
 
-Last Updated: 6/8/2026
+Last Updated: 6/10/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -59,12 +59,16 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
 
   // Makes a matrix/image output in 7 separate stages/objects which track the evolution of the image overtime through a "pipeline" of image processing steps.  These steps/stages are all used in the code later.
   // Stages:
-  // 1.) fgmask == the foreground mask which is created by applying the background subtractor to the blurred frame. This shows the moving objects in white and the background in black.
-  // 2.) thresh == the thresholded version of the foreground mask which is created by applying a binary threshold to the foreground mask. 
+  // 1.) fg_mask == the foreground mask which is created by applying the background subtractor to the blurred frame. This shows the moving objects in white and the background in black.
+  // 2.) blur == median blur is applied to the foreground mask to remove extraneous camera noise.
+  // 3.) thresh_temp == the thresholded version of the foreground mask which is created by applying a binary threshold to the foreground mask.  This is temporary and will be overwritten later when subtracting overall background noise 
   // An arbitrary threshold helps forces all pixels to be either white (255) or black (0), which forces the foreground to be either completely white or completely black which makes it easier to detect contours.
-  // 3.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
+  // 4.) bg_mask == this background mask is created by inverting the colors of the temporarily thresholded image to be later applied onto the foreground mask and then subtracted off to the get the global noise level.
+  // 5.)
+  // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
+  // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
   
-    cv::Mat fg_mask, blur, thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+    cv::Mat fg_mask, blur, thresh_temp, bg_mask,  thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
     // foregound mask that converts the background subtractor image to a non-colored background 
     cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
@@ -73,7 +77,20 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     cv::medianBlur(fg_mask, blur, 5);
 
     // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
-    cv::threshold(blur, thresh, 25, 255, cv::THRESH_BINARY);
+    cv::threshold(blur, thresh_temp, 25, 255, cv::THRESH_BINARY);
+
+    // Create the background mask which the temporary threshold passes onto
+    cv::bitwise_not(bg_mask, thresh_temp);
+
+    // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background regions as the mean function only analyzes white pixels
+    double global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
+
+    // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
+    cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
+
+    // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise removed from subtracting the background noise
+    cv::threshold(cleaned_blur, thresh,15, 255, cv::THRESH_BINARY);
+
 
     // Dilate the image
     // thresh is passed in as this is the image being dilated; dilated stores the new dilated image as an object. 
@@ -190,4 +207,9 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets) {
     }
 
 }
+
+
+
+
+
 
