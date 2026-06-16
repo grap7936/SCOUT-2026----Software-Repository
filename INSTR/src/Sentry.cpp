@@ -6,12 +6,22 @@ Sentry::Sentry(int thresh) : selector(thresh) {
     target_debris_count = {};
     prev_targets = {};
     next_targets = {};
+    detector = *(new Detector);
+    selector = *(new Selector(thresh));
+    current_frame_number = -1;
 }
 
 // Initial frame setup routine utilizing the detection engine
 void Sentry::init( cv::Mat frame ) {
     setNextFrame( frame );
+    current_frame_number = 0;
     detector.scan( frame, next_targets );
+    selector.setFullTargetListPtr(&full_target_list);
+    for (size_t i = 0; i < next_targets.size(); i++) {
+        next_targets[i]->setFrameNum(current_frame_number);
+        selector.initTarget(next_targets[i]);
+        target_debris_count.push_back( 0 );
+    }
 }
 
 /* Function pageFrame( cv::Mat frame )
@@ -46,6 +56,11 @@ void Sentry::pageFrame( cv::Mat frame ) {
     // Step 5: Expand the debris score vector to account for any brand new tracking nodes
     for (int j = old_full_list_size; j < new_full_list_size; j++ ) {
         target_debris_count.push_back( 0 );
+    }
+
+    // Set frame number
+    for (size_t j = 0; j < next_targets.size(); j++) {
+        next_targets[j]->setFrameNum(current_frame_number);
     }
 }
 
@@ -128,6 +143,9 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         return -1;
     }
 
+    // Increment frame counter
+    current_frame_number++;
+
     // Progress data buffers forward by one step sequence
     pageFrame( frame );
 
@@ -144,7 +162,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         Target* target = relevant_targets[j];
 
         // Core conditional gate: Flag entity if its outlier threshold score has been breached
-        if ( target_debris_count[j] > 2 ) {
+        if ( target_debris_count[target->id] > 2 ) {
             
             // Branch A: System is actively seeking a target; return the first match found
             if ( debris_id == -1 ){
@@ -189,7 +207,7 @@ std::vector<Target*> Sentry::getRelevantTargets() {
     // Filter list down to objects with historical link chains
     for (int i = 0; i < size; i++) {
         Target* curr_instance = full_target_list[i];
-        if (curr_instance->prev_instance != nullptr) {
+        if (curr_instance->prev_instance != nullptr && curr_instance->getFrameNum() >= current_frame_number-6) {
             relevant_targets.push_back( curr_instance );
         }
     }
@@ -205,7 +223,7 @@ std::vector<Target*> Sentry::getRelevantTargets() {
  * returns:
  *  std::vector<float> - A 2-element float array representing the global average [mean_vx, mean_vy].
  */
-std::vector<float> Sentry::getMeanTargetVelocity( std::vector<Target*> relevant_targets ) {
+std::vector<float> Sentry::getMeanTargetVelocity( std::vector<Target*>& relevant_targets ) {
     int size = relevant_targets.size();
     float x_sum = 0.0;
     float y_sum = 0.0;
@@ -232,7 +250,7 @@ std::vector<float> Sentry::getMeanTargetVelocity( std::vector<Target*> relevant_
  * returns:
  *  void - Directly updates object parameters and synchronizes local scoring vectors.
  */
-void Sentry::updateDebrisLikelihood( std::vector<Target*> relevant_targets ) {
+void Sentry::updateDebrisLikelihood( std::vector<Target*>& relevant_targets ) {
     
     // Establish the reference group movement baseline metrics
     std::vector<float> mean_velocity = getMeanTargetVelocity( relevant_targets );

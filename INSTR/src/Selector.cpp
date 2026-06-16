@@ -61,29 +61,35 @@ void Selector::initTarget( Target* new_target ) {
     int measDim = 2;
     int ctrlDim = 0;
     
-    cv::KalmanFilter* KF = new cv::KalmanFilter(stateDim, measDim, ctrlDim, CV_32F);
+    auto KF = std::make_shared<cv::KalmanFilter>(stateDim, measDim, ctrlDim, CV_64F);
 
     // Define the State Transition Matrix (A) assuming a constant velocity model:
     // x_next  = 1*x  + 0*y  + 1*vx + 0*vy
     // y_next  = 0*x  + 1*y  + 0*vx + 1*vy
     // vx_next = 0*x  + 0*y  + 1*vx + 0*vy
     // vy_next = 0*x  + 0*y  + 0*vx + 1*vy
-    KF->transitionMatrix = (cv::Mat_(4,4, CV_32F) << 1,0,1,0, 0,1,0,1, 0,0,1,0, 0,0,0,1);
+    KF->transitionMatrix = (cv::Mat_<double>(4,4) << 1.0,0.0,1.0,0.0, 0.0,1.0,0.0,1.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);
 
     // Define Measurement Matrix (H) to isolate observed variables:
     // Extracts directly measured position [x, y] from the 4D state vector
-    KF->measurementMatrix = (cv::Mat_(2,4, CV_32F) << 1,0,0,0, 0,1,0,0);
+    KF->measurementMatrix = (cv::Mat_<double>(2,4) << 1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0);
 
     // Tune filter noise models
-    // Process noise covariance (Q): Model minor variations in movement physics
-    setIdentity(KF->processNoiseCov, cv::Scalar::all(1e-4));
-    // Measurement noise covariance (R): Account for raw camera detection variance
-    setIdentity(KF->measurementNoiseCov, cv::Scalar::all(1e-1));
-    // Posteriori error estimate covariance (P): High starting uncertainty for new track
-    setIdentity(KF->errorCovPost, cv::Scalar::all(1));
+    // Process noise covariance (Q)
+    KF->processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-4;
+    
+    // Measurement noise covariance (R)
+    KF->measurementNoiseCov = cv::Mat::eye(measDim, measDim, CV_64F) * 1e-1;
+    
+    // Posteriori error estimate covariance (P)
+    KF->errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1.0;
 
     // Seed the filter with the initial position coordinates; velocity begins at 0.0
-    KF->statePost = (cv::Mat_(4,1, CV_32F) << new_target->x, new_target->y, 0.0, 0.0);
+    KF->statePost = cv::Mat_<double>(4,1);
+    KF->statePost.at<double>(0, 0) = static_cast<double>(new_target->x);
+    KF->statePost.at<double>(1, 0) = static_cast<double>(new_target->y);
+    KF->statePost.at<double>(2, 0) = 0.0;
+    KF->statePost.at<double>(3, 0) = 0.0;
 
     // Link the filter instance directly onto the target object payload
     new_target->kf = KF;
@@ -304,14 +310,14 @@ void Selector::estimateNextState() {
     for (size_t i = 0; i < prev_targets->size(); i++) {
 
         Target* target = (*prev_targets)[i];
-        cv::KalmanFilter* KF = target->kf;
+        std::shared_ptr<cv::KalmanFilter> KF = target->kf;
 
         // Advance state tracking equations forward in time (Prediction stage)
         cv::Mat prediction = KF->predict();
 
         // Extract projected location predictions and store inside node properties
-        target->nx = prediction.at<float>(0,0); // Predicted X position coordinate
-        target->ny = prediction.at<float>(1,0); // Predicted Y position coordinate
+        target->nx = prediction.at<double>(0,0); // Predicted X position coordinate
+        target->ny = prediction.at<double>(1,0); // Predicted Y position coordinate
     }  
 }
 
@@ -333,18 +339,18 @@ void Selector::updateEstimate() {
         if ( target->prev_instance != nullptr ) {
             
             // Format incoming visual tracking hits into standard OpenCV structural containers
-            cv::Mat measurement = cv::Mat::zeros(2, 1, CV_32F);
-            measurement.at<float>(0) = target->x;
-            measurement.at<float>(1) = target->y;
+            cv::Mat measurement = cv::Mat::zeros(2, 1, CV_64F);
+            measurement.at<double>(0, 0) = static_cast<double>(target->x);
+            measurement.at<double>(1, 0) = static_cast<double>(target->y);
 
             // Execute Measurement Correction Step (Correct stage) to balance prediction vs observations
             cv::Mat estimated = target->kf->correct(measurement);
             
             // Unpack optimal state estimations onto target memory fields
-            target->kx = estimated.at<float>(0); // Optimal calculated position X
-            target->ky = estimated.at<float>(1); // Optimal calculated position Y
-            target->vx = estimated.at<float>(2); // Smoothed velocity component X
-            target->vy = estimated.at<float>(3); // Smoothed velocity component Y
+            target->kx = estimated.at<double>(0, 0); // Optimal calculated position X
+            target->ky = estimated.at<double>(1, 0); // Optimal calculated position Y
+            target->vx = estimated.at<double>(2, 0); // Smoothed velocity component X
+            target->vy = estimated.at<double>(3, 0); // Smoothed velocity component Y
         }
     }
 }
@@ -368,30 +374,18 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
     setFullTargetListPtr(full);
 
     int prev_size = prev->size();
-    int next_size = next->size();
-    
-    // Scenario A: Initial execution window or zero items tracked previously
-    if ( prev_size == 0 ) {
-        // Automatically initialize all entities observed as fresh tracks
-        for (int i = 0; i < next_size; i++) {
-            initTarget((*next)[i]);
-        }
-    } 
-    // Scenario B: Active tracking history engine path is running
-    else {
 
-        // Phase 1: Advance historical tracking equations forward to match current time frame
-        estimateNextState();
+    // Phase 1: Advance historical tracking equations forward to match current time frame
+    estimateNextState();
 
-        // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
-        for ( int i = 0; i < prev_size; i++) {
-            weight( (*prev)[i] );
-        }
-
-        // Phase 3: Solve the cost allocation problem and update node linking identities
-        connect();
-
-        // Phase 4: Correct Kalman track matrices using real optical observations
-        updateEstimate();
+    // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
+    for ( int i = 0; i < prev_size; i++) {
+        weight( (*prev)[i] );
     }
+
+    // Phase 3: Solve the cost allocation problem and update node linking identities
+    connect();
+
+    // Phase 4: Correct Kalman track matrices using real optical observations
+    updateEstimate();
 }

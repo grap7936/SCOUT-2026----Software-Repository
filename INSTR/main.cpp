@@ -7,27 +7,27 @@
 #include "Selector.hpp"
 #include "Sentry.hpp"
 
-void writeToPID();
+void writeToPID(int, int);
 
 int main() {
 
-    cv::VideoCapture cap(0);
+    cv::VideoCapture cap("testing/testVideo.mp4");
     if (!cap.isOpened()) {
         std::cerr << "Error: could not open video capture\n";
         return -1;
     }
 
-    int selector_closeness_threshold = 3000;
+    int selector_closeness_threshold = 5000;
 
     Sentry sentry(selector_closeness_threshold);
 
+    int debris_id = -1;
     cv::Mat frame;
     while (true) {
         if (!cap.read(frame)) { // reads next frame into 'frame'
             break; // exit on failure / end of stream
         }
 
-        int debris_id = -1;
         debris_id = sentry.findDebris( frame, debris_id );
 
         if ( debris_id != -1 ){

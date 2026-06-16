@@ -10,6 +10,7 @@
 class Sentry {
 
 public:
+    int current_frame_number;
     cv::Mat prev_frame;
     cv::Mat next_frame;
     std::vector<Target*> full_target_list;
@@ -51,9 +52,9 @@ public:
 
     std::vector<Target*> getRelevantTargets();
 
-    std::vector<float> getMeanTargetVelocity( std::vector<Target*> relevant_targets );
+    std::vector<float> getMeanTargetVelocity( std::vector<Target*>& relevant_targets );
 
-    void updateDebrisLikelihood( std::vector<Target*> relevant_targets );
+    void updateDebrisLikelihood( std::vector<Target*>& relevant_targets );
 };
 
 #endif

@@ -31,7 +31,7 @@ std::cout << "PRESS ENTER TO START DEBUGGING..." << std::endl;
 
 // Define your test image path
 // Note: Use forward slashes '/' or escaped backslashes '\\' in C++ paths
-std::string image_path = "C:/Users/zkdyr/Desktop/Scout/INSTR/testing/Star_test_image.jpg"; // defines string that will be input to imread later
+std::string image_path = "/home/scout/Desktop/INSTR/testing/Star_test_image.jpg"; // defines string that will be input to imread later
 
 // Initialize detector class
 Detector my_detector;

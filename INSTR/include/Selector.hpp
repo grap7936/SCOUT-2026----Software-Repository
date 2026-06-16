@@ -4,6 +4,7 @@
 #include <vector>
 #include <math.h>
 #include <algorithm>
+#include <memory>
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Graph.hpp"

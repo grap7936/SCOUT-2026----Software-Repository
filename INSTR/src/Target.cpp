@@ -99,13 +99,13 @@ void Target::setKy(float ky) {
     this->ky = ky;
 }
 
-// int Target::getFrameNum() { 
-//     return this->frame_num;
-// }
+int Target::getFrameNum() { 
+    return this->frame_num;
+}
 
-// void Target::setFrameNum(int frame_num) {
-//     this->frame_num = frame_num;
-// }
+void Target::setFrameNum(int frame_num) {
+    this->frame_num = frame_num;
+}
 
 int Target::getDebrisLikelihood() {
     return debris_likelihood;
@@ -139,11 +139,11 @@ void Target::setProximity(Graph* proximity) {
     this->proximity = proximity;
 }
 
-cv::KalmanFilter* Target::getKf() {
+std::shared_ptr<cv::KalmanFilter> Target::getKf() {
     return this->kf;
 }
 
-void Target::setKf(cv::KalmanFilter* kf) {
+void Target::setKf(std::shared_ptr<cv::KalmanFilter> kf) {
     this->kf = kf;
 }
 

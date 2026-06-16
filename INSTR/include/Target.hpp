@@ -1,6 +1,7 @@
 #ifndef TARGET_HPP
 #define TARGET_HPP
 #include <opencv2/opencv.hpp>
+#include <memory>
 class Graph ; 
 
 class Target {
@@ -17,7 +18,7 @@ public:
     Target* next_instance;
     Target* prev_instance;
     Graph* proximity;
-    cv::KalmanFilter* kf;
+    std::shared_ptr<cv::KalmanFilter> kf;
 
     Target(int x, int y, int size);
         
@@ -61,9 +62,9 @@ public:
 
     void setKy(float ky);
 
-    // int getFrameNum();
+    int getFrameNum();
 
-    // void setFrameNum(int frame_num);
+    void setFrameNum(int frame_num);
 
     int getDebrisLikelihood();
 
@@ -81,9 +82,9 @@ public:
 
     void setProximity(Graph* proximity);
     
-    cv::KalmanFilter* getKf();
+    std::shared_ptr<cv::KalmanFilter> getKf();
 
-    void setKf(cv::KalmanFilter* kf) ;
+    void setKf(std::shared_ptr<cv::KalmanFilter> kf) ;
 };
         
 #endif

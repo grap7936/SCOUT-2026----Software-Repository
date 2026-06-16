@@ -1,9 +1,9 @@
 # Compiler settings
-CXX = C:/msys64/ucrt64/bin/g++.exe
-CXXFLAGS = -g -Wall -Wextra -std=c++17 -Iinclude -IC:/msys64/ucrt64/include/opencv4
+CXX = g++
+CXXFLAGS = -g -Wall -Wextra -std=c++17 -Iinclude -I/usr/include/opencv4
 
 # OpenCV configuration 
-OPENCV = -LC:/msys64/ucrt64/lib -lopencv_highgui -lopencv_videoio -lopencv_imgcodecs -lopencv_video -lopencv_imgproc -lopencv_core
+OPENCV = `pkg-config --cflags --libs opencv4`
 
 # Library source files
 SRC = $(wildcard src/*.cpp)
@@ -48,15 +48,15 @@ src/%.o: src/%.cpp
 
 # Create output directory
 directories: # for linux
-# mkdir -p bin
+	mkdir -p bin
 
 
 # Remove generated files
 clean:
 # for linux
-# rm -f src/*.o main.o
+	rm -f src/*.o main.o
 # for windows
-	del /q /f src\*.o main.o
+# del /q /f src\*.o main.o
 
 
 .PHONY: all clean tests directories
