@@ -18,7 +18,7 @@ Sentry::Sentry(int thresh) {
     // since its Kalman-predicted position barely drifts while vx/vy stay near zero,
     // so it's still the closest candidate whenever it reappears. Re-tune if your
     // scene's detection dropout characteristics differ.
-    frame_timeout = 10;
+    frame_timeout = 8;
 }
 
 // Initial frame setup routine utilizing the detection engine
@@ -354,8 +354,8 @@ void Sentry::updateDebrisLikelihood( std::vector<Target*>& relevant_targets ) {
     }
 
     // Relative percentage bounds defining drift thresholds (0.5 = 50% deviation)
-    float vx_thresh = 1.0;
-    float vy_thresh = 1.0;
+    float vx_thresh = 1.5;
+    float vy_thresh = 1.5;
 
     // Check individual velocities against global average trend lines
     for (size_t i = 0; i < relevant_targets.size(); i++) {

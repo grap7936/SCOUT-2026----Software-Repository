@@ -11,9 +11,32 @@ void writeToPID(int, int, int);
 
 int main() {
 
+    // Start video capture
     cv::VideoCapture cap("testing/testVideo3.mp4");
     if (!cap.isOpened()) {
         std::cerr << "Error: could not open video capture\n";
+        return -1;
+    }
+
+    // Retrieve camera frame dimensions and frame rate
+    int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+    int frame_height = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    double fps = cap.get(cv::CAP_PROP_FPS);
+    
+    // Fallback if the camera driver returns 0 for FPS
+    if (fps <= 0) { 
+        fps = 30.0; 
+    }
+
+    // Define the codec using FourCC and initialize the VideoWriter
+    // 'mp4v' or 'avc1' are highly reliable for MP4 containers
+    int codec = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
+    cv::Size frame_size(frame_width, frame_height);
+    std::string filename = "debrisTestResults.mp4";
+
+    cv::VideoWriter writer(filename, codec, fps, frame_size, true);
+    if (!writer.isOpened()) {
+        std::cerr << "Error: Could not open the video writer." << std::endl;
         return -1;
     }
 
@@ -35,6 +58,8 @@ int main() {
             writeToPID(debris_id, debris_xy[0], debris_xy[1]);
         }
 
+        writer.write(frame);
+
         // (optional) show the frame
         cv::imshow("Frame", frame);
         if (cv::waitKey(1) == 27) { // exit if ESC pressed
@@ -43,9 +68,6 @@ int main() {
 
 
     }
-
-
-
 
 
     return 0;

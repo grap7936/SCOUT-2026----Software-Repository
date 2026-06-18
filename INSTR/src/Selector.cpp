@@ -114,7 +114,7 @@ void Selector::weight( Target* root ) {
     // Evaluate physical spacing between the root and every target found in the incoming frame
     for (size_t i = 0; i < next_targets->size(); i++) {
 
-        float gain1 = 0.35;
+        float gain1 = 0.25;
         float gain2 = 1.0 - gain1;
         
         // Step 1: Compute distance between previous known position and next raw position
@@ -223,9 +223,10 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
 
     // Rectangular processing: Pad out columns if rows outnumber columns to preserve sizing constraints
     if ( n > m ) {
-        for (int i = 0; i < n-m; i++) {
-            for (int j = 0; j < n; j++) {
-                cost_matrix[j].push_back( INF );
+        int pad = n - m;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < pad; j++) {
+                cost_matrix[i].push_back( 0 );
             }
         }
         m = cost_matrix[0].size();
