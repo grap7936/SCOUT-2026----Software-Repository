@@ -13,7 +13,7 @@ the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c).
 
 Author: Graeme Appel
 
-Last Updated: 6/10/2026
+Last Updated: 6/16/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -80,7 +80,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     cv::threshold(blur, thresh_temp, 25, 255, cv::THRESH_BINARY);
 
     // Create the background mask which the temporary threshold passes onto
-    cv::bitwise_not(bg_mask, thresh_temp);
+    cv::bitwise_not(thresh_temp, bg_mask);
 
     // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background regions as the mean function only analyzes white pixels
     double global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
@@ -88,8 +88,8 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
     cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
 
-    // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise removed from subtracting the background noise
-    cv::threshold(cleaned_blur, thresh,15, 255, cv::THRESH_BINARY);
+   // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise/brightness removed from subtracting the background noise and so the threshold used should be slightly lower to detect the same objects as would be detected before.
+    cv::threshold(cleaned_blur, thresh, 25-global_background_noise, 255, cv::THRESH_BINARY);
 
 
     // Dilate the image
@@ -145,7 +145,7 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
                                                 // const makes sure that the contours do not change inside the loop which can prevent errors 
         double size = cv::contourArea(contour); // uses contourArea to return total number of pixels (i.e size) that each contour/bounding box envelopes
 
-        if (size < 1000) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
+        if (size < 100 && size > 10) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
 
             // Creates a bounding rectangle around the contour
             cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes

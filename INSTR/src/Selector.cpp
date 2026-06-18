@@ -48,7 +48,7 @@ void Selector::setNextTargetsPtr( std::vector<Target*>* new_ptr ) {
  * returns:
  * void - updates fields within new_target and appends it to full_list.
  */
-void Selector::initTarget( Target* new_target ) {
+void Selector::initTarget( Target* new_target, float mean_vx, float mean_vy ) {
 
     // Assign a unique ID based on the current number of tracked targets, then store it
     new_target->id = full_list->size();
@@ -84,12 +84,12 @@ void Selector::initTarget( Target* new_target ) {
     // Posteriori error estimate covariance (P)
     KF->errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1.0;
 
-    // Seed the filter with the initial position coordinates; velocity begins at 0.0
+    // Seed the filter with the initial position coordinates; velocity starts at the swarm's current mean velocity
     KF->statePost = cv::Mat_<double>(4,1);
     KF->statePost.at<double>(0, 0) = static_cast<double>(new_target->x);
     KF->statePost.at<double>(1, 0) = static_cast<double>(new_target->y);
-    KF->statePost.at<double>(2, 0) = 0.0;
-    KF->statePost.at<double>(3, 0) = 0.0;
+    KF->statePost.at<double>(2, 0) = static_cast<double>(mean_vx);
+    KF->statePost.at<double>(3, 0) = static_cast<double>(mean_vy);
 
     // Link the filter instance directly onto the target object payload
     new_target->kf = KF;
@@ -111,18 +111,21 @@ void Selector::weight( Target* root ) {
 
     // Evaluate physical spacing between the root and every target found in the incoming frame
     for (size_t i = 0; i < next_targets->size(); i++) {
+
+        float gain1 = 0.25;
+        float gain2 = 1.0 - gain1;
         
         // Step 1: Compute distance between previous known position and next raw position
         int dx = root->x - (*next_targets)[i]->x;
         int dy = root->y - (*next_targets)[i]->y;
         float norm1 = sqrt( pow(dx, 2) + pow(dy, 2) );
-        int weight1 = norm1 * 10; // Scaling factor for cost matrix compliance
+        int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
 
         // Step 2: Compute distance between Kalman predicted position (nx, ny) and next raw position
         int dnx = root->nx - (*next_targets)[i]->x;
         int dny = root->ny - (*next_targets)[i]->y;
         float norm2 = sqrt( pow(dnx, 2) + pow(dny, 2) );
-        int weight2 = norm2 * 10;
+        int weight2 = gain2 * norm2 * 10;
 
         // Composite cost combines actual past offset and projected tracking path proximity
         graph->addVertex( (*next_targets)[i], weight1 + weight2 );
@@ -142,7 +145,7 @@ void Selector::weight( Target* root ) {
  * - sets Target.prevInstance pointers for targets in nextTargets[].
  * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'threshold' (see Constructor).
  */
-void Selector::connect() {
+void Selector::connect( float mean_vx, float mean_vy ) {
     int prev_size = prev_targets->size();
     int next_size = next_targets->size();
 
@@ -171,7 +174,7 @@ void Selector::connect() {
         }
 
         // Branching check: If error variance exceeds threshold, do not connect
-        if ( (*prev_targets)[j]->proximity->getVertexWeight(connect_index) > threshold ) {
+        if ( (*prev_targets)[j]->proximity->getVertexWeight(connect_index) > threshold) {
             continue;
         } else {
             // Valid track association: Tie linked lists together across frames
@@ -195,7 +198,7 @@ void Selector::connect() {
         if ( next_targets_used[i] == true ) {
             continue; // Node already successfully bound to a previous path
         } else {
-            initTarget((*next_targets)[i]); // Brand new detection, initialize path history
+            initTarget((*next_targets)[i], mean_vx, mean_vy); // Brand new detection, initialize path history
         }
     }
 }
@@ -366,7 +369,7 @@ void Selector::updateEstimate() {
  * returns:
  * void - updates all ids as well as nextInstance and prevInstance pointers for targets that exist in both sets.
  */
-void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full ) {
+void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full, float mean_vx, float mean_vy ) {
 
     // Cache structural parameters safely locally within class state pointers
     setNextTargetsPtr(next);
@@ -384,7 +387,7 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
     }
 
     // Phase 3: Solve the cost allocation problem and update node linking identities
-    connect();
+    connect( mean_vx, mean_vy );
 
     // Phase 4: Correct Kalman track matrices using real optical observations
     updateEstimate();

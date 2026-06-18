@@ -11,6 +11,7 @@ class Sentry {
 
 public:
     int current_frame_number;
+    int frame_timeout;
     cv::Mat prev_frame;
     cv::Mat next_frame;
     std::vector<Target*> full_target_list;
@@ -24,7 +25,7 @@ public:
 
     void init( cv::Mat );
 
-    void pageFrame( cv::Mat );
+    void pageFrame( cv::Mat, float, float );
 
     void setNextFrame( cv::Mat );
 
@@ -53,6 +54,7 @@ public:
     std::vector<Target*> getRelevantTargets();
 
     std::vector<float> getMeanTargetVelocity( std::vector<Target*>& relevant_targets );
+    std::vector<float> getMedianTargetVelocity( std::vector<Target*>& relevant_targets );
 
     void updateDebrisLikelihood( std::vector<Target*>& relevant_targets );
 };

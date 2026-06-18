@@ -61,7 +61,7 @@ Target* Graph::getVertexPtrByID( int vertex_id ){
 }
 
 // Returns the target ID at a specific index with an out-of-bounds safety check
-int Graph::getVertexID( int index ){
+int Graph::getVertexID( size_t index ){
     if (index >= target.size()) {
         return -2; // Error boundary sentinel flag
     }
@@ -69,7 +69,7 @@ int Graph::getVertexID( int index ){
 }
 
 // Returns the assignment weight at a specific index with an out-of-bounds safety check
-int Graph::getVertexWeight( int index ){
+int Graph::getVertexWeight( size_t index ){
     if (index >= weight.size()) {
         return -2; // Error boundary sentinel flag
     }

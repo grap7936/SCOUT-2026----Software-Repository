@@ -35,11 +35,11 @@ public:
 
     void setFullTargetListPtr( std::vector<Target*>* );
 
-    void initTarget( Target* );
+    void initTarget( Target*, float, float );
 
     void weight( Target* );
 
-    void connect();
+    void connect( float, float );
 
     std::vector<int> hungarianAlgorithm( std::vector<std::vector<int>> );
 
@@ -47,7 +47,7 @@ public:
 
     void updateEstimate();
 
-    void scan( std::vector<Target*>*, std::vector<Target*>*, std::vector<Target*>* );
+    void scan( std::vector<Target*>*, std::vector<Target*>*, std::vector<Target*>*, float, float );
 
 };
 

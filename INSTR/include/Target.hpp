@@ -68,7 +68,7 @@ public:
 
     int getDebrisLikelihood();
 
-    void incDebrisLikelihood();
+    void setDebrisLikelihood(int);
 
     Target* getNextInstancePtr();
 

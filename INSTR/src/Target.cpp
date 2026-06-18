@@ -111,8 +111,8 @@ int Target::getDebrisLikelihood() {
     return debris_likelihood;
 }
 
-void Target::incDebrisLikelihood() {
-    this->debris_likelihood = debris_likelihood + 1;
+void Target::setDebrisLikelihood(int count) {
+    this->debris_likelihood = count;
 }
 
 Target* Target::getNextInstancePtr() {

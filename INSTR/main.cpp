@@ -7,7 +7,7 @@
 #include "Selector.hpp"
 #include "Sentry.hpp"
 
-void writeToPID(int, int);
+void writeToPID(int, int, int);
 
 int main() {
 
@@ -17,7 +17,7 @@ int main() {
         return -1;
     }
 
-    int selector_closeness_threshold = 5000;
+    int selector_closeness_threshold = 250;
 
     Sentry sentry(selector_closeness_threshold);
 
@@ -32,7 +32,7 @@ int main() {
 
         if ( debris_id != -1 ){
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
-            writeToPID(debris_xy[0], debris_xy[1]);
+            writeToPID(debris_id, debris_xy[0], debris_xy[1]);
         }
 
         // (optional) show the frame
@@ -51,7 +51,7 @@ int main() {
     return 0;
 }
 
-void writeToPID(int x, int y) {
-    std::cout << "sending coords to arduino B) -- ";
+void writeToPID(int id, int x, int y) {
+    std::cout << "sending coords to arduino (" << id << ") -- ";
     std::cout << "x: " << x << " y: " << y << std::endl; 
 }

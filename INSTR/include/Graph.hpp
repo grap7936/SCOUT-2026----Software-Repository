@@ -26,9 +26,9 @@ public:
 
     Target* getVertexPtrByID(int);
 
-    int getVertexID(int);
+    int getVertexID(size_t);
 
-    int getVertexWeight(int);
+    int getVertexWeight(size_t);
 
     int getVertexWeightByID(int);
 

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert> // Required for the assert() command
+#include <cmath> // Required for std::abs() on the seeded-velocity assertion
 #include "Graph.hpp"
 #include "Target.hpp"
 #include "Selector.hpp"
@@ -157,16 +158,40 @@ int main() {
 
 
     // =========================================================================
+    // TEST CONFIGURATION 9 (NEW: Mean-Velocity Seeding for Brand-New Tracks)
+    // =========================================================================
+    // Frame 1 is empty, so the single Frame 2 detection has nothing to match
+    // against and must be spawned as a brand-new track through initTarget()'s
+    // cleanup pass. Confirms the mean_vx/mean_vy parameters threaded through
+    // scan() -> connect() -> initTarget() actually reach the seeded Kalman
+    // filter state instead of silently defaulting to 0.
+    std::vector<int> id9_f1 = {};
+    std::vector<int> coords9_f1 = {};
+    std::vector<int> id9_f2 = { 0 };
+    std::vector<int> coords9_f2 = { 300,300 };
+    std::vector<Target*> target9_f1 = {};
+    std::vector<Target*> target9_f2 = {};
+    std::vector<Target*> target9_full = {};
+
+    Selector selector9 = defineSelector(threshold, id9_f1, coords9_f1, id9_f2, coords9_f2, target9_f1, target9_f2, target9_full);
+    float seeded_mean_vx = 12.5f;
+    float seeded_mean_vy = -7.25f;
+
+
+    // =========================================================================
     // RUN ALGORITHM SCANS
     // =========================================================================
-    selector1.scan( &target1_f1, &target1_f2, &target1_full );
-    selector2.scan( &target2_f1, &target2_f2, &target2_full );
-    selector3.scan( &target3_f1, &target3_f2, &target3_full );
-    selector4.scan( &target4_f1, &target4_f2, &target4_full );
-    selector5.scan( &target5_f1, &target5_f2, &target5_full );
-    selector6.scan( &target6_f1, &target6_f2, &target6_full );
-    selector7.scan( &target7_f1, &target7_f2, &target7_full );
-    selector8.scan( &target8_f1, &target8_f2, &target8_full );
+    // Tests 1-8 don't care about velocity seeding, so they rely on scan()'s default mean_vx/mean_vy (0,0)
+    selector1.scan( &target1_f1, &target1_f2, &target1_full, 0.0, 0.0 );
+    selector2.scan( &target2_f1, &target2_f2, &target2_full, 0.0, 0.0 );
+    selector3.scan( &target3_f1, &target3_f2, &target3_full, 0.0, 0.0 );
+    selector4.scan( &target4_f1, &target4_f2, &target4_full, 0.0, 0.0 );
+    selector5.scan( &target5_f1, &target5_f2, &target5_full, 0.0, 0.0 );
+    selector6.scan( &target6_f1, &target6_f2, &target6_full, 0.0, 0.0 );
+    selector7.scan( &target7_f1, &target7_f2, &target7_full, 0.0, 0.0 );
+    selector8.scan( &target8_f1, &target8_f2, &target8_full, 0.0, 0.0 );
+    // Test 9 explicitly passes a nonzero mean velocity to verify it reaches the seeded Kalman state
+    selector9.scan( &target9_f1, &target9_f2, &target9_full, seeded_mean_vx, seeded_mean_vy );
     
 
     // =========================================================================
@@ -180,6 +205,7 @@ int main() {
     std::cout << "\nTest 6 Results (Mass Exit):" << std::endl; printResults ( target6_f1, target6_f2 );
     std::cout << "\nTest 7 Results (Tie-Breaker):" << std::endl; printResults ( target7_f1, target7_f2 );
     std::cout << "\nTest 8 Results (Boundaries):" << std::endl; printResults ( target8_f1, target8_f2 );
+    std::cout << "\nTest 9 Results (Velocity Seeding):" << std::endl; printResults ( target9_f1, target9_f2 );
 
 
     // =========================================================================
@@ -220,6 +246,15 @@ int main() {
     // Test 8
     for (size_t i = 0; i < target8_f1.size(); ++i) { assert((target8_f1[i]->next_instance != nullptr) == expected_has_next_t8[i]); }
 
+    // Test 9: brand-new track spawned with no history, seeded with the passed-in mean velocity
+    assert(target9_f2.size() == 1);
+    assert(target9_full.size() == 1);
+    assert(target9_f2[0]->next_instance == nullptr);
+    assert(target9_f2[0]->prev_instance == nullptr);
+    assert(target9_f2[0]->kf != nullptr);
+    assert(std::abs(target9_f2[0]->kf->statePost.at<double>(2, 0) - seeded_mean_vx) < 1e-3);
+    assert(std::abs(target9_f2[0]->kf->statePost.at<double>(3, 0) - seeded_mean_vy) < 1e-3);
+
     std::cout << "All tracking tests passed successfully!" << std::endl;
 
     // =========================================================================
@@ -233,6 +268,7 @@ int main() {
     cleanupTestMemory( target6_f1, target6_f2, selector6 );
     cleanupTestMemory( target7_f1, target7_f2, selector7 );
     cleanupTestMemory( target8_f1, target8_f2, selector8 );
+    cleanupTestMemory( target9_f1, target9_f2, selector9 );
 
     return 0;
 }
