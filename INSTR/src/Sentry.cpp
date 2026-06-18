@@ -25,7 +25,7 @@ Sentry::Sentry(int thresh) {
 void Sentry::init( cv::Mat frame ) {
     setNextFrame( frame );
     current_frame_number = 0;
-    detector.scan( frame, next_targets );
+    detector.scan( frame, next_targets, current_frame_number );
     selector.setFullTargetListPtr(&full_target_list);
 
     // No tracks exist yet on a cold start, so this naturally evaluates to {0,0} -
@@ -76,7 +76,7 @@ void Sentry::pageFrame( cv::Mat frame, float mean_vx, float mean_vy ) {
     
     // Step 3: Clear the next array buffer and query the detector for incoming updates
     clearNextTargets();
-    detector.scan( frame, next_targets );
+    detector.scan( frame, next_targets, current_frame_number );
     
     // Step 4: Run the matching pipeline to establish links between frame instances
     int old_full_list_size = full_target_list.size();
@@ -181,7 +181,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     // than starting from zero velocity.
     std::vector<Target*> prior_relevant_targets = getRelevantTargets();
     std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
-
+    
     // Progress data buffers forward by one step sequence
     pageFrame( frame, prior_median_velocity[0], prior_median_velocity[1] );
 
@@ -193,7 +193,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
 
     // Color frame
     // array of colors for tracking frame boxes  red, orange, yellow, green, blue, purple, pink
-    std::vector<cv::Scalar> COLORS = { cv::Scalar(255,0,0),cv::Scalar(255,127,0),cv::Scalar(255,255,0),cv::Scalar(0,255,0),cv::Scalar(0,0,255),cv::Scalar(127,0,127),cv::Scalar(255,191,191) };
+    std::vector<cv::Scalar> COLORS = { cv::Scalar(0,0,255),cv::Scalar(0,127,255),cv::Scalar(0,255,255),cv::Scalar(0,255,0),cv::Scalar(255,0,0),cv::Scalar(127,0,127),cv::Scalar(191,191,255) };
     for (size_t i = 0; i < next_targets.size(); i++) {
         if ( next_targets[i]->prev_instance == nullptr ) {
             cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 10, COLORS[next_targets[i]->id % 7], -1);
@@ -213,7 +213,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
             if ( target->id == debris_id && debris_id != -1 ) {
-                cv::circle(frame, cv::Point(target->getX(), target->getY()), target->getSize(), cv::Scalar(255, 0, 0), -1);
+                cv::circle(frame, cv::Point(target->getX(), target->getY()), 30, cv::Scalar(255, 255, 255), -1);
                 return debris_id;
             } 
             // Branch B: Anomaly found but its ID conflicts with what we are currently monitoring
@@ -232,7 +232,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     
     // Fallback: If primary target drops but an alternative candidate was buffered, switch tracking focus
     if ( saved_alt_target != nullptr ) {
-        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), saved_alt_target->getSize(), cv::Scalar(255, 0, 0), -1);
+        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), 30, cv::Scalar(255, 255, 255), -1);
         return saved_alt_target->id;
     }
 
@@ -354,19 +354,19 @@ void Sentry::updateDebrisLikelihood( std::vector<Target*>& relevant_targets ) {
     }
 
     // Relative percentage bounds defining drift thresholds (0.5 = 50% deviation)
-    float vx_thresh = 10.0;
-    float vy_thresh = 10.0;
+    float vx_thresh = 1.0;
+    float vy_thresh = 1.0;
 
     // Check individual velocities against global average trend lines
     for (size_t i = 0; i < relevant_targets.size(); i++) {
         Target* target = relevant_targets[i];
         
         // Calculate normalized variation percentage along the X axis component
-        float vx_diff = median_velocity[0] - target->getVx();
+        float vx_diff = (median_velocity[0] - target->getVx()) / median_velocity[0];
         if (vx_diff < 0) { vx_diff = -vx_diff; } // Absolute value step
         
         // Calculate normalized variation percentage along the Y axis component
-        float vy_diff = median_velocity[1] - target->getVy();
+        float vy_diff = (median_velocity[1] - target->getVy()) / median_velocity[1];
         if (vy_diff < 0) { vy_diff = -vy_diff; } // Absolute value step
 
         // If kinematics deviate past threshold bounds, mark this target as an anomaly

@@ -13,7 +13,7 @@ the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c).
 
 Author: Graeme Appel
 
-Last Updated: 6/16/2026
+Last Updated: 6/18/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -35,10 +35,84 @@ Last Updated: 6/16/2026
 // Constructor (Equivalent to Python's __init__)
 Detector::Detector() {
     next_object_ID = 0;
+    end_calibration_period = 0;
+    global_background_noise = 0.0;
     // tracked_objects_centr initializes automatically as an empty map!
 }
 
 // Member functions (same as described at the top of the code)
+
+// startCalibration() member function
+
+/*
+ Function summary: Uses the current frame count inside of the sentry class (which starts from when the camera stream starts running) 
+ and adds a thresholding number (defined arbitrarily for now) to create an integer variable which will determine the number of frames 
+ used in the next function to determine an overall global background noise. This will be passed into the next function which will use 
+ this variable to loop through and average global background noise until reaching the limit defined by this function.
+
+NOTE: if the background of a region that the cubesat is viewing changes drastically, this function will be called again to set a new 
+global background noise value to be subtracted.
+ 
+ Inputs: 
+ 1.) frame_num == current frame found by the current_frame_number variable defined in the Sentry class (starting from the start of the camera feed)
+
+ Outputs:
+ None
+*/
+
+
+void Detector::startCalibration(int frame_num) {
+
+    end_calibration_period = frame_num + 3; // the 3 is arbitrarily passed in for now as it will use 3 frames after the current frame count to 
+                                            // determine the end of finding the global background noise. This could be changed to a passed in variable 
+                                            // later if the threshold defined needs to be more specific or frquently changed
+
+
+    global_background_noise = 0.0;                                         
+}
+
+// calibrateBackgroundNoise() member function
+
+/*
+ Function summary: Uses constraint from previous function to loop through and average the global background noise of the environment being looked at.
+ 
+ Inputs: 
+ 1.)  frame = "newest" frame of the camera view for tracking
+
+ Outputs:
+ 1.)  global_background_noise == overall global background noise averaged over X number of frames determined by the threshold in the previous function
+*/
+
+
+
+void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
+
+
+        
+        cv::Mat fg_mask, blur, thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+
+        // foregound mask that converts the background subtractor image to a non-colored background 
+        cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
+
+        // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
+        cv::medianBlur(fg_mask, blur, 5);
+
+        // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
+        cv::threshold(blur, thresh_temp, 25, 255, cv::THRESH_BINARY);
+
+        // Create the background mask which the temporary threshold passes onto
+        cv::bitwise_not(thresh_temp, bg_mask);
+
+        // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background
+        double new_global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
+
+
+        // Compute averaged global back_ground_noise as (total_noise)/(num_frames_used)
+        global_background_noise = (global_background_noise + new_global_background_noise) / (2);
+
+}
+
+
 
 // filter() member function
 
@@ -68,7 +142,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
   // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
   // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
   
-    cv::Mat fg_mask, blur, thresh_temp, bg_mask,  thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+    cv::Mat fg_mask, blur, thresh_temp, bg_mask, thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
     // foregound mask that converts the background subtractor image to a non-colored background 
     cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
@@ -76,27 +150,18 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
     cv::medianBlur(fg_mask, blur, 5);
 
-    // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
-    cv::threshold(blur, thresh_temp, 25, 255, cv::THRESH_BINARY);
-
-    // Create the background mask which the temporary threshold passes onto
-    cv::bitwise_not(thresh_temp, bg_mask);
-
-    // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background regions as the mean function only analyzes white pixels
-    double global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
-
     // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
     cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
 
    // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise/brightness removed from subtracting the background noise and so the threshold used should be slightly lower to detect the same objects as would be detected before.
-    cv::threshold(cleaned_blur, thresh, 25-global_background_noise, 255, cv::THRESH_BINARY);
+    cv::threshold(cleaned_blur, thresh, 25 - global_background_noise, 255, cv::THRESH_BINARY);
 
 
     // Dilate the image
     // thresh is passed in as this is the image being dilated; dilated stores the new dilated image as an object. 
     // Dilation works by sliding a small matrix (a kernel) over the image. If the kernel hits a white pixel, it turns the surrounding pixels white. By passing an empty cv::Mat() as an input, the kernel defaults to a 3x3 rectangular element
     // cv::Point(-1, -1) puts each kernel's anchor point (point relative to the current pixel being processed) in the center of each kernel (this is just a necessary input)
-    cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), 2);
+    cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), 1);
 
     return dilated;
 }
@@ -145,7 +210,7 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
                                                 // const makes sure that the contours do not change inside the loop which can prevent errors 
         double size = cv::contourArea(contour); // uses contourArea to return total number of pixels (i.e size) that each contour/bounding box envelopes
 
-        if (size < 100 && size > 10) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
+        if (size < 1000) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
 
             // Creates a bounding rectangle around the contour
             cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes
@@ -182,7 +247,20 @@ Outputs:
 */
 
 
-void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets) {
+void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num) {
+
+    // initializer for the calibration process
+    if (frame_num == 0) {
+
+    startCalibration(frame_num);
+    } 
+
+    // Call the calibrate background noise function if the current frame number is less than the end_calibration_period limit
+
+    if (frame_num < end_calibration_period) {
+        calibrateBackgroundNoise(frame);
+    }
+    
 
     // Call filter() function for passed in frame
     cv::Mat frame_dilated = filter(frame);
@@ -207,6 +285,63 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets) {
     }
 
 }
+
+
+
+
+// ***************************************** Look at this example filter code for tomorrow to see if the filtering method needs to be changed 
+// or altered to this new method -- or test functionality of this program compared to the current filter version to see if it eliminates the "brightness" problem
+
+
+
+// cv::Mat Detector::filter(const cv::Mat& frame) {
+
+//     // 1. Convert current frame to grayscale
+//     cv::Mat current_gray, last_gray_frame, fg_mask, blur, thresh, dilated; // initialize matrices to store frame data
+//     cv::cvtColor(frame, current_gray, cv::COLOR_BGR2GRAY); // convert the active frame input's background to grayscale/monochrome
+
+//     // 2. Handle the very first frame edge-case
+//     if (last_gray_frame.empty()) {
+//         last_gray_frame = current_gray.clone(); // sets the last_frame to a gray frame in the case that there is no previous frame (only for the 1st frame read in)
+//         // Return an empty matrix because we don't have a baseline comparison yet
+//         return cv::Mat::zeros(frame.size(), CV_8UC1); 
+//     }
+
+//     // 3. True Temporal Background Subtraction -- note that background subtraction differs from the previous filtering method in that it analyzes multiple frames
+//     // and can subtract stationary stars to see where an object is if there is one distinct object moving across a frame.
+//     cv::absdiff(current_gray, last_gray_frame, fg_mask);
+
+//     // Update the history baseline for the NEXT frame execution
+//     last_gray_frame = current_gray.clone(); // stores the current iteration of the frame into the last_gray_frame item and then current_gray_frame will be overwritten
+//                                             // as the filter function reads in each subsequent frame input.
+
+//     // Apply Median Blur to the isolated foreground mask
+//     cv::medianBlur(fg_mask, blur, 5);
+
+//     // 5. Calculate Local Noise Level dynamically 
+//     // Now, cv::mean only calculates the leftover sensor noise floor, 
+//     // entirely unaffected by bright stars or blooming targets.
+//     double global_background_noise = cv::mean(blur)[0]; 
+
+//     // 6. Final Thresholding
+//     // Standardize your threshold ceiling now that the background is completely flattened
+//     cv::threshold(blur, thresh, 15 + global_background_noise, 255, cv::THRESH_BINARY);
+
+//     // 7. Dilate to bridge tracking structural gaps
+//     cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), 2);
+
+//     return dilated;
+// }
+
+
+
+
+
+
+
+
+
+
 
 
 

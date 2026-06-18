@@ -11,13 +11,13 @@ void writeToPID(int, int, int);
 
 int main() {
 
-    cv::VideoCapture cap("testing/testVideo.mp4");
+    cv::VideoCapture cap("testing/testVideo3.mp4");
     if (!cap.isOpened()) {
         std::cerr << "Error: could not open video capture\n";
         return -1;
     }
 
-    int selector_closeness_threshold = 250;
+    int selector_closeness_threshold = 500;
 
     Sentry sentry(selector_closeness_threshold);
 

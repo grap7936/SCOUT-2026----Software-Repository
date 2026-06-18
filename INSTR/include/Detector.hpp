@@ -15,7 +15,7 @@ the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c).
 
 Author: Graeme Appel
 
-Last Updated: 6/8/2026
+Last Updated: 6/18/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -77,20 +77,27 @@ public:
 // These property lines likely are not necessary for this application but I will keep them in for completeness for the time being
 // Class Properties 
     int next_object_ID;
+    int end_calibration_period;
+    double global_background_noise;
     
     // Maps an object ID (int) to a center coordinate (x, y) using std::pair<int, int>
     std::map<int, std::pair<int, int>> tracked_objects_centr;
+
 
     // Constructor (Equivalent to Python's __init__)
     Detector();
 
 // Member functions (same as described at the top of the code)
 
+    void startCalibration(int frame_num);
+
+    void calibrateBackgroundNoise(const cv::Mat& frame);
+
     cv::Mat filter(const cv::Mat& frame);
 
     std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(cv::Mat& frame, const cv::Mat& dilated);
 
-    void scan(cv::Mat& frame, std::vector<Target*>& targets);
+    void scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num);
 };
 
 

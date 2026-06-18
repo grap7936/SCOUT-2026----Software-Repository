@@ -42,6 +42,7 @@ std::string image_path = "testing/exact_test_image.png";
 
 int square_side_length = 200;
 int circle_radius = 50;
+int frame_num = 0;
 
 
 // Expected sizes of both rectangle objects detected for testing functionality using the "assert" function later in this code
@@ -70,7 +71,7 @@ try {
 
     // Call the scan function to access the specific frame and compile the list of targets
     std::vector<Target*> targets;
-    my_detector.scan(display_frame, targets);
+    my_detector.scan(display_frame, targets, frame_num);
 
     // note that this outputs if the code has no errors indicated by the try and catch blocks so if this outputs it is by default successful
     std::cout << "--- Scan Successful! ---" << std::endl;
@@ -240,7 +241,7 @@ std::cout << "There are " << massive_count << " objects over 500 pixels and repr
             delete tgt;
         }
         targets.clear(); // Empty the vector tracking addresses
-        
+
 
     }
     catch (const std::exception& e) {
@@ -251,15 +252,6 @@ std::cout << "There are " << massive_count << " objects over 500 pixels and repr
 return 0;
 
 }
-
-
-
-
-
-
-
-
-
 
 
 

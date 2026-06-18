@@ -52,6 +52,8 @@ void Selector::initTarget( Target* new_target, float mean_vx, float mean_vy ) {
 
     // Assign a unique ID based on the current number of tracked targets, then store it
     new_target->id = full_list->size();
+    new_target->kx = new_target->x;
+    new_target->ky = new_target->y;
     full_list->push_back(new_target);
 
     // Initialize Kalman Filter parameters
@@ -112,7 +114,7 @@ void Selector::weight( Target* root ) {
     // Evaluate physical spacing between the root and every target found in the incoming frame
     for (size_t i = 0; i < next_targets->size(); i++) {
 
-        float gain1 = 0.25;
+        float gain1 = 0.35;
         float gain2 = 1.0 - gain1;
         
         // Step 1: Compute distance between previous known position and next raw position
