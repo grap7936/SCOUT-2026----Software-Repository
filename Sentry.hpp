@@ -57,6 +57,8 @@ private:
     void updateDebrisLikelihood( std::vector<Target*> relevant_targets );
 
     void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list);
+
+    void Sentry::dumpOldTargets();  
 };
 
 #endif
