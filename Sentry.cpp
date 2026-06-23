@@ -164,7 +164,7 @@ void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
 std::ofstream Saved_Target_Data; 
 
 // If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
-if (is_first_save = true)
+if (is_first_save == true)
     {
     Saved_Target_Data.open("Saved_Target_Data.txt"); // opens/creates necessary text file for inputting data into
     is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
@@ -172,7 +172,7 @@ if (is_first_save = true)
 
 else 
     {
-    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app);
+    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app); // append data to the text file
     }
 
 
@@ -187,12 +187,18 @@ else
 for (Target* target : full_target_list)
 {
 
-    // Ensure each entry actually has relevant information -- i.e not blank
-    if (target != nullptr) 
-    {   
-        // Output Target ID as well as X and Y position to the Text File
-        Saved_Target_Data << "Target ID: " << target->id << "/t" << "Position: (" << target->x << ", " << target->y << "/n";
+    // Create a pointer to go through the current linked list when reading through the list of linked lists
+    Target* current = target;
 
+    // Loop through the linked list until reaching the end which is signified by a nullptr
+    while (current != nullptr)
+    {
+        Saved_Target_Data << "Target ID: " << current->id << "\t" << "Position: (" << current->x << ", " << current->y << ")\n"
+                          << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
+                          << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
+
+        // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
+        current = current->next_instance;
     }
 
 }
