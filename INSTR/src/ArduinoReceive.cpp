@@ -36,13 +36,15 @@ Last Updated: 6/22/2026
  */
 
 
-// Global declarations for target tracking states
+// Global declarations for target tracking states -- note that for the Arduino system unsigned integer types and integer types of specific bytes are used to prevent any mismatch betweeen coordinate dimensions sent form the Jetson to the arduino. 
+// The "sending" function/side of things also uses these same data types to ensure functionality.
 uint16_t activeTargetID = 0;
 int16_t  targetXCoord   = 0;
 int16_t  targetYCoord   = 0;
 
-// --- STEP 1: INITIALIZE HARDWARE SUBSYSTEMS ---
+// Setting up hardware to ensure it is the same as the given arduino board being used -- note that if the bps (bits per second) of the arduino is different, then modify this as the input into the Serial.begin() function.
 void setup() {
+
   // Initialize Serial UART connection. Must perfectly match the B115200 
   // speed forced by tcsetattr() inside ArduinoSend::initializePort().
   Serial.begin(115200);
@@ -51,14 +53,19 @@ void setup() {
   // pinMode(9, OUTPUT); 
 }
 
-// --- STEP 2: STREAM PROCESSING RECEPTION LOOP ---
+// Stream processing loop to ensure that the data packages sent from the Jetson are properly managed by the Ardunio side of things
 void loop() {
+
   // Check if at least one complete 8-byte packet is waiting in the buffer
   if (Serial.available() >= 8) {
     
+
+    // Note that not every single variable inside of the buffer array (bufffer[]) in the ArduinoSend function need to be accessed specifically
+    //  but each byte is accessed sequentially by using the Serial read functions in order and so that is what assigns each byte split into 2 to different variable names in the ArduinoReceive function.
     // Peek or read the first byte to verify it's our designated frame marker
     if (Serial.read() == '!') {
       
+
       // Read the 16-bit Target ID (Split across 2 bytes)
       uint8_t id_high = Serial.read();
       uint8_t id_low  = Serial.read();
@@ -74,17 +81,24 @@ void loop() {
       // Read the terminating character
       uint8_t end_marker = Serial.read();
 
-      // Enforce frame validation alignment before trusting data integrity
+      // Enforce frame validation alignment before trusting data integrity -- i.e only reads in and stores data pertaining to targets if the proper 
+      // start and end marking conditions are met to ensure the packet of data is packaged properly.
       if (end_marker == '\n') {
         
         // Reconstruct the 16-bit words by shifting the High Byte up 8 bits 
         // and merging the Low Byte using a bitwise OR operation.
+
+        // Recall that each high bit was shifted 8 bytes to the right to properly package each section in the ArduinoSend function and so this reverses that and moves the bit 8 bytes to the left 
+        // Now, the "right" bit for each which for the the shifted high bit is all 0's and the right bit for the low bit is all 1's and 0's. The bitwise OR operation checks to see which "right" bit has members other than all 0's and takes that bit and combines it with the shifted high bit. 
+        // Essentially, each of these lines stitches back together the split up bits and puts it back into a 16 byte unit for each case so for the ID this stores all of the target ID final numbers in binary and for the target coordinates this puts back toether the x and y coordinates. 
         activeTargetID = (uint16_t)((id_high << 8) | id_low);
         targetXCoord   = (int16_t)((x_high << 8) | x_low);
         targetYCoord   = (int16_t)((y_high << 8) | y_low);
 
-        // Dispatch the synchronized coordinates straight into the tracking loop
-        executePIDControl(activeTargetID, targetXCoord, targetYCoord);
+
+        // Commented out for now -- only need if any of the PID control portion is worked on in here.
+        // // Dispatch the synchronized coordinates straight into the tracking loop
+        // executePIDControl(activeTargetID, targetXCoord, targetYCoord);
       }
       else {
         // Alignment error recovery: discard data frame to resynchronize stream
@@ -95,13 +109,13 @@ void loop() {
   }
 }
 
-// --- STEP 3: ACTUATION & TRACKING COMPUTATION ---
-void executePIDControl(uint16_t id, int16_t x, int16_t y) {
-  // This function triggers every single time a clean target frame updates.
-  // Insert your mathematical PID error differences here.
+// Error differences from PID can be inserted here if needed. But if the PID portion is packaged separately then this whole section can be deleted. It is simply commented out for now because I do not know if the funcionality is needed for what our current system is running.
+// void executePIDControl(uint16_t id, int16_t x, int16_t y) {
+//   // This function triggers every single time a clean target frame updates.
+//   // Insert your mathematical PID error differences here.
   
-  // Example: 
-  // float errorX = target_center_x - x;
-  // float outputX = calculatePID(errorX);
-  // servoX.write(outputX);
-}
+//   // Example: 
+//   // float errorX = target_center_x - x;
+//   // float outputX = calculatePID(errorX);
+//   // servoX.write(outputX);
+// }
