@@ -64,6 +64,11 @@ class Detector
 {
 private:
     // Class Properties
+    int BLUR_KERNEL_SIZE;
+    int BG_THRESHOLD_MARGIN;
+    int DILATION_ITERATIONS;
+    int MAX_CONTOUR_SIZE;
+
     int end_calibration_period;    // frame index at which background calibration stops
     double global_background_noise; // current estimated background brightness to subtract
     int current_frame_num;          // frame index most recently passed to scan()
@@ -76,10 +81,30 @@ private:
 
 public:
 
-    // Constructor (Equivalent to Python's __init__)
+    // Contructor (Equivalent to Python's __init__)
+    Detector(int blur_size, int thresh_margin, int dilation_iter, int contour_size);
+
+    // Backup/Default Constructor (Equivalent to Python's __init__)
     Detector();
 
 // Member functions (same as described at the top of the code)
+
+    void setBlurKernelSize(int blur_size);
+
+    int getBlurKernelSize();
+
+    void setBGThresholdMargin(int thresh_margin);
+
+    int getBGThresholdMargin();
+
+    void setDilationIterations(int dilation_iter);
+
+    int getDilationIterations();
+
+    void setMaxContourSize(int contour_size);
+
+    int getMaxContourSize();
+
 
     void setFrameNum(int frame_num);
 

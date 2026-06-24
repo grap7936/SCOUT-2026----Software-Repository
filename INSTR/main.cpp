@@ -40,9 +40,7 @@ int main() {
         return -1;
     }
 
-    int selector_closeness_threshold = 250;
-
-    Sentry sentry(selector_closeness_threshold);
+    Sentry sentry;
 
     int debris_id = -1;
     cv::Mat frame;

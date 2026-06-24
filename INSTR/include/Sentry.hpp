@@ -2,25 +2,32 @@
 #define SENTRY_HPP
 
 #include <vector>
-#include <fstream>
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Selector.hpp"
 #include "Detector.hpp"
 
 class Sentry {
-
 private:
-    int DEBRIS_THRESHOLD;
-    int REFRESH_FREQUENCY;
+
+    int TRACKER_DEBRIS_THRESHOLD;
+    int TRACKER_DECAY;
+    float TRACKER_SPEED_NOISE_FLOOR;
+    float TRACKER_SCORE_GAIN;
+    
+
+    int DETECTOR_BG_REFRESH_FREQUENCY;
+    int DETECTOR_BLUR_KERNEL_SIZE;
+    int DETECTOR_BG_THRESHOLD_MARGIN;
+    int DETECTOR_DILATION_ITERATIONS;
+    int DETECTOR_MAX_CONTOUR_SIZE;
+
+    int SELECTOR_CLOSENESS_THRESHOLD;
+    int SELECTOR_FRAME_TIMEOUT;
+    float SELECTOR_WEIGHT_COMPOSITION;
+    
 
     int current_frame_number;
-    int frame_timeout;
-    bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
-                               // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
-                               // function to False for every subsequent case.
-
     cv::Mat prev_frame;
     cv::Mat next_frame;
     std::vector<Target*> full_target_list;
@@ -30,10 +37,17 @@ private:
     Detector detector;
     Selector selector;
 
-
 public:
 
-    Sentry(int);
+    Sentry();
+
+    void setTrackerParams( int thresh, int decay, float noise_floor, float score_gain );
+
+    void setDetectorParams( int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size );
+
+    void setSelectorParams( int close_thresh, int frame_timeout, float weight_comp );
+
+    void setAllParams( int thresh, int decay, float noise_floor, float score_gain, int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size, int close_thresh, int frame_timeout, float weight_comp );
 
     void init( cv::Mat );
 
@@ -67,11 +81,7 @@ public:
 
     int findDebris( cv::Mat, int);
 
-    void writeTargetsToFile(std::vector<Target*> full_target_list);
-
     void updateDebrisLikelihood();
-
-    void dumpOldTargets();  
 };
 
 #endif

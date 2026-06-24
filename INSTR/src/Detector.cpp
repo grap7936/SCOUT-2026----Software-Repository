@@ -36,7 +36,24 @@ Last Updated: 6/23/2026
 
 
 // Constructor (Equivalent to Python's __init__)
+Detector::Detector( int blur_size, int thresh_margin, int dilation_iter, int contour_size ) {
+    BLUR_KERNEL_SIZE = blur_size;
+    BG_THRESHOLD_MARGIN = thresh_margin;
+    DILATION_ITERATIONS = dilation_iter;
+    MAX_CONTOUR_SIZE = contour_size;
+    
+    end_calibration_period = 0;
+    global_background_noise = 0.0;
+    current_frame_num = 0;
+}
+
+// Backup/Default Constructor (Equivalent to Python's __init__)
 Detector::Detector() {
+    BLUR_KERNEL_SIZE = 5;
+    BG_THRESHOLD_MARGIN = 10;
+    DILATION_ITERATIONS = 1;
+    MAX_CONTOUR_SIZE = 1000;
+
     end_calibration_period = 0;
     global_background_noise = 0.0;
     current_frame_num = 0;
@@ -61,6 +78,46 @@ global background noise value to be subtracted.
  Outputs:
  None - sets end_calibration_period and resets global_background_noise to 0.
 */
+
+// Sets the medianBlur kernel size
+void Detector::setBlurKernelSize(int blur_size) {
+    BLUR_KERNEL_SIZE = blur_size;
+}
+
+// Returns the medianBlur kernel size
+int Detector::getBlurKernelSize() {
+    return BLUR_KERNEL_SIZE;
+}
+
+// Sets the threshold value to use after BG subtraction
+void Detector::setBGThresholdMargin(int thresh_margin) {
+    BG_THRESHOLD_MARGIN = thresh_margin;
+}
+
+// Returns the threshold value to use after BG subtraction
+int Detector::getBGThresholdMargin() {
+    return BG_THRESHOLD_MARGIN;
+}
+
+// Sets the number of dilations to perform on thresholded frame
+void Detector::setDilationIterations(int dilation_iter) {
+    DILATION_ITERATIONS = dilation_iter;
+}
+
+// Returns the number of dilations to perform on thresholded frame
+int Detector::getDilationIterations() {
+    return DILATION_ITERATIONS;
+}
+
+// Sets the maximum contour size to consider 
+void Detector::setMaxContourSize(int contour_size) {
+    MAX_CONTOUR_SIZE = contour_size;
+}
+
+// Returns the maximum contour size to consider 
+int Detector::getMaxContourSize() {
+    return MAX_CONTOUR_SIZE;
+}
 
 // Sets the frame index the detector is currently working on
 void Detector::setFrameNum(int frame_num) {
@@ -117,7 +174,7 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
         cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
 
         // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-        cv::medianBlur(fg_mask, blur, 5);
+        cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
 
         // // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
         // cv::threshold(blur, thresh_temp, 30, 255, cv::THRESH_BINARY);
@@ -140,8 +197,7 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
         }
         double new_global_background_noise = static_cast<double>(mode_intensity);
 
-        // Add a small fixed margin so faint near-background texture is also subtracted.
-        global_background_noise = new_global_background_noise + 5;
+        global_background_noise = new_global_background_noise;
 
         // // Create the background mask which the temporary threshold passes onto
         // cv::bitwise_not(thresh_temp, bg_mask);
@@ -191,20 +247,20 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
 
     // Applies median Blur to foreground mask from last step (kernel size is 3 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-    cv::medianBlur(fg_mask, blur, 3);
+    cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
 
     // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
     cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
 
    // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise/brightness removed from subtracting the background noise and so the threshold used should be slightly lower to detect the same objects as would be detected before.
-    cv::threshold(cleaned_blur, thresh, 10, 255, cv::THRESH_BINARY);
+    cv::threshold(cleaned_blur, thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
 
 
     // Dilate the image
     // thresh is passed in as this is the image being dilated; dilated stores the new dilated image as an object. 
     // Dilation works by sliding a small matrix (a kernel) over the image. If the kernel hits a white pixel, it turns the surrounding pixels white. By passing an empty cv::Mat() as an input, the kernel defaults to a 3x3 rectangular element
     // cv::Point(-1, -1) puts each kernel's anchor point (point relative to the current pixel being processed) in the center of each kernel (this is just a necessary input)
-    cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), 1);
+    cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), DILATION_ITERATIONS);
 
     return dilated;
 }
@@ -253,7 +309,7 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
                                                 // const makes sure that the contours do not change inside the loop which can prevent errors 
         double size = cv::contourArea(contour); // uses contourArea to return total number of pixels (i.e size) that each contour/bounding box envelopes
 
-        if (size < 1000) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
+        if (size < MAX_CONTOUR_SIZE) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
 
             // Creates a bounding rectangle around the contour
             cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes

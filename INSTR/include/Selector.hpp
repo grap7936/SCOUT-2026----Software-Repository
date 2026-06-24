@@ -11,7 +11,9 @@
 
 class Selector {
 private:
-    int threshold;
+    int THRESHOLD;
+    int FRAME_TIMEOUT;
+    float WEIGHT_COMPOSITION;
 
     std::vector<Target*>* prev_targets;
     std::vector<Target*>* next_targets;
@@ -19,14 +21,14 @@ private:
     std::vector<cv::KalmanFilter> kf_list;
 
     
-    int current_frame_num, frame_timeout;
+    int current_frame_num;
     std::vector<Target*> current_relevant_targets;
     float current_mean_vx, current_mean_vy;
     float current_median_vx, current_median_vy;
 
 public:
 
-    Selector( int thresh, int timeout );
+    Selector( int thresh, int timeout, int weight_comp );
 
     Selector();
 
@@ -57,6 +59,10 @@ public:
 
     void setFrameTimeout(int timeout);
 
+    float getWeightComposition();
+
+    void setWeightComposition(float gain1);
+
     void determineRelevantTargets();
 
     std::vector<Target*> getRelevantTargets();
@@ -74,7 +80,7 @@ public:
 
     //void weight( Target* ); sent to Graph Class
 
-    void computeWeights( float gain1 );
+    void computeWeights();
 
     void connect();
 

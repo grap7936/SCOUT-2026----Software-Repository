@@ -1,27 +1,67 @@
 #include "Sentry.hpp"
 
 // Constructor initializing tracking pipelines and sub-module settings
-Sentry::Sentry(int thresh) {
+Sentry::Sentry() {
     full_target_list = {};
     target_debris_count = {};
     prev_targets = {};
     next_targets = {};
-    frame_timeout = 4;
-    detector = *(new Detector);
-    selector = *(new Selector(thresh, frame_timeout));
     current_frame_number = -1;
-    DEBRIS_THRESHOLD = 12;
-    REFRESH_FREQUENCY = 15;
 
-    // How many consecutive frames a track is allowed to go undetected before it's
-    // considered permanently lost. Measured against real footage: dense, dim star
-    // fields flicker in and out of detection a lot - over a quarter of brief dropouts
-    // lasted longer than the old window of 4, while raising it to 10 catches roughly
-    // 90% of them. For a near-static point this is safe even when the gap is long,
-    // since its Kalman-predicted position barely drifts while vx/vy stay near zero,
-    // so it's still the closest candidate whenever it reappears. Re-tune if your
-    // scene's detection dropout characteristics differ.
-    // frame_timeout = 8;
+    TRACKER_DEBRIS_THRESHOLD = 12;
+    TRACKER_DECAY = 6;
+    TRACKER_SPEED_NOISE_FLOOR = 0.5f;
+    TRACKER_SCORE_GAIN = 1.0f;
+
+    DETECTOR_BG_REFRESH_FREQUENCY = 15;
+    DETECTOR_BLUR_KERNEL_SIZE = 5;
+    DETECTOR_BG_THRESHOLD_MARGIN = 10;
+    DETECTOR_DILATION_ITERATIONS = 1;
+    DETECTOR_MAX_CONTOUR_SIZE = 1000;
+
+    SELECTOR_CLOSENESS_THRESHOLD = 250;
+    SELECTOR_FRAME_TIMEOUT = 4;
+    SELECTOR_WEIGHT_COMPOSITION = 0.25; // 0.25 splits gains to [ 0.25 | 0.75 ] for [ x,y | nx,ny ]
+
+    detector = *(new Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE));
+    selector = *(new Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION));
+
+}
+
+void Sentry::setTrackerParams( int thresh, int decay, float noise_floor, float score_gain ) {
+    TRACKER_DEBRIS_THRESHOLD = thresh;
+    TRACKER_DECAY = decay;
+    TRACKER_SPEED_NOISE_FLOOR = noise_floor;
+    TRACKER_SCORE_GAIN = score_gain;
+}
+
+void Sentry::setDetectorParams( int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size ) {
+    DETECTOR_BG_REFRESH_FREQUENCY = refresh_freq;
+    DETECTOR_BLUR_KERNEL_SIZE = blur_size;
+    DETECTOR_BG_THRESHOLD_MARGIN = thresh_margin;
+    DETECTOR_DILATION_ITERATIONS = dilation_iter;
+    DETECTOR_MAX_CONTOUR_SIZE = contour_size;
+
+    detector.setBlurKernelSize( DETECTOR_BLUR_KERNEL_SIZE );
+    detector.setBGThresholdMargin( DETECTOR_BG_THRESHOLD_MARGIN );
+    detector.setDilationIterations( DETECTOR_DILATION_ITERATIONS );
+    detector.setMaxContourSize( DETECTOR_MAX_CONTOUR_SIZE );
+}  
+
+void Sentry::setSelectorParams( int close_thresh, int frame_timeout, float weight_comp ) {
+    SELECTOR_CLOSENESS_THRESHOLD = close_thresh;
+    SELECTOR_FRAME_TIMEOUT = frame_timeout;
+    SELECTOR_WEIGHT_COMPOSITION = weight_comp;
+
+    selector.setThreshold( SELECTOR_CLOSENESS_THRESHOLD );
+    selector.setFrameTimeout( SELECTOR_FRAME_TIMEOUT );
+    selector.setWeightComposition( SELECTOR_WEIGHT_COMPOSITION );
+}
+
+void Sentry::setAllParams( int thresh, int decay, float noise_floor, float score_gain, int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size, int close_thresh, int frame_timeout, float weight_comp ) {
+    setTrackerParams( thresh, decay, noise_floor, score_gain );
+    setDetectorParams( refresh_freq, blur_size, thresh_margin, dilation_iter, contour_size );
+    setSelectorParams( close_thresh, frame_timeout, weight_comp );
 }
 
 // Initial frame setup routine utilizing the detection engine
@@ -58,12 +98,12 @@ void Sentry::pageFrame( cv::Mat frame ) {
     setNextFrame( frame ); 
 
     // Step 2: Retain any tracks that went unmatched last round but are still within the
-    // occlusion grace window (missed for frame_timeout frames or fewer), then add last
+    // occlusion grace window (missed for SELECTOR_FRAME_TIMEOUT frames or fewer), then add last
     // frame's detections as additional matching candidates for this round.
     std::vector<Target*> retained_targets = {};
     for (size_t i = 0; i < prev_targets.size(); i++) {
         Target* t = prev_targets[i];
-        if ( t->getNextInstancePtr() == nullptr && (current_frame_number - t->getFrameNum()) <= frame_timeout ) {
+        if ( t->getNextInstancePtr() == nullptr && (current_frame_number - t->getFrameNum()) <= SELECTOR_FRAME_TIMEOUT ) {
             retained_targets.push_back(t);
         }
     }
@@ -195,7 +235,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     // Increment frame counter
     current_frame_number++;
 
-    if ( current_frame_number % REFRESH_FREQUENCY == 0 ) {
+    if ( current_frame_number % DETECTOR_BG_REFRESH_FREQUENCY == 0 ) {
         detector.startCalibration();
     }
 
@@ -238,7 +278,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         Target* target = relevant_targets[j];
 
         // Core conditional gate: Flag entity if its outlier threshold score has been breached
-        if ( target_debris_count[target->getID()] > DEBRIS_THRESHOLD ) {
+        if ( target_debris_count[target->getID()] > TRACKER_DEBRIS_THRESHOLD ) {
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
             if ( target->getID() == debris_id && debris_id != -1 ) {
@@ -261,7 +301,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
 
     // Sticky tracking: if the locked target isn't over-gate or present this frame but is
     // still within its occlusion grace window, retain it rather than dropping the lock.
-    if ( debris_id != -1 && full_target_list[debris_id]->getFrameNum() + frame_timeout >= current_frame_number ) {
+    if ( debris_id != -1 && full_target_list[debris_id]->getFrameNum() + SELECTOR_FRAME_TIMEOUT >= current_frame_number ) {
         return debris_id;
     }
     
@@ -331,121 +371,3 @@ void Sentry::updateDebrisLikelihood() {
         target->setDebrisLikelihood( target_debris_count[target->getID()] );
     }
 }
-
-
-void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
-
-/////////////////////////////////////////////////////////////
-
-/*
- Function Summary: Takes in the full list (vector of pointers -- called full target list in the sentry code) and writes each pointer/target
-  entry into a text file. This function will likely be called to save targets before dumping any unnecessary or previously filed targets so 
-  that the processing power/speed of the system does not get consistently slower overtime. I.e this prevents fullTargetList from growing 
-  infinitely long which would cause the system to loop through a continually growing list and get consistently slower overtime. 
-
- Inputs: 
- 1.) std::vector<Target*> fullTargetList == List of target pointers that are continually stored by the detection, selector, and sentry scripts. 
-
- Outputs:
- Void
-
- Author: Graeme Appel
-
- Last Updated: 6/23/26
-*/
-
-/////////////////////////////////////////////////////////////
-
-// Define output stream -- preallocate
-std::ofstream Saved_Target_Data; 
-
-// If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
-if (is_first_save == true)
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt"); // opens/creates necessary text file for inputting data into
-    is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
-    }
-
-else 
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app); // append data to the text file
-    }
-
-
-    // Test if stream operation failed
-    if (Saved_Target_Data.fail()) 
-        {
-	        std::cout << "Error opening the input file."; 
-	        return;
-        }
-
-// Write Target data to created text file by looping through all entries -- uses range based for loop
-for (Target* target : full_target_list)
-    {
-
-        // Create a pointer to go through the current linked list when reading through the list of linked lists
-        Target* current = target;
-
-        // Loop through the linked list until reaching the end which is signified by a nullptr
-        while (current != nullptr)
-            {
-            Saved_Target_Data << "Target ID: " << current->id << "\t" << "Position: (" << current->x << ", " << current->y << ")\n"
-                              << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
-                              << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
-
-            // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
-            current = current->next_instance;
-            }
-
-    }
-
-Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
-
-}
-
-void Sentry::dumpOldTargets()  {
-
-/////////////////////////////////////////////////////////////
-
-/*
- Function Summary: Modified the full list of pointers (full_targets_list -- property in the Sentry.cpp class) and creates a pointer to a new blank vector of pointers
-  (linked lists) so that the system can keep running the code with no loss in time or processing speed. After the new vector of pointers
-   is created for the system to work with, this function deletes/dumps all of the old data written to the text file.
-
- Inputs: 
- None
-
- Outputs:
- Void
- 
- Author: Graeme Appel
-
- Last Updated: 6/23/26
-*/
-
-/////////////////////////////////////////////////////////////
-
-// Loop through the vector and safely delete the actual Target objects allocated in memory
-// Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
-
-    for (Target* target : full_target_list) { // loops through all of the targets in the full target list by using a range based for loop
-        Target* current = target; 
-            while (current != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
-                Target* next = current->next_instance; // move to next target object in list
-                delete current; // Free the target memory
-                current = next;
-        }
-    }
-
-    // Clear the vector full_target_list of all memory locations (pointers) now that all of the target objects have been deleted. It is now a blank vector of Target* ready for new data.
-    full_target_list.clear();
-
-    // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
-    // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 
-    // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
-    target_debris_count.clear();
-
-
-
-}
-
