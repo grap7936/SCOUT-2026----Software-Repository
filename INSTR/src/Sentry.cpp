@@ -1,5 +1,4 @@
 #include "Sentry.hpp"
-#include "Detector.hpp"
 
 // Constructor initializing tracking pipelines and sub-module settings
 Sentry::Sentry(int thresh) {
