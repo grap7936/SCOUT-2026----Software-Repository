@@ -7,12 +7,12 @@
 #include "Selector.hpp"
 #include "Sentry.hpp"
 
-void writeToPID(int, int, int);
+void writeToPID(int id, int x, int y, int nx, int ny);
 
 int main() {
 
     // Start video capture
-    cv::VideoCapture cap("testing/testVideo3.mp4");
+    cv::VideoCapture cap("testing/testVideo6.mp4");
     if (!cap.isOpened()) {
         std::cerr << "Error: could not open video capture\n";
         return -1;
@@ -40,7 +40,7 @@ int main() {
         return -1;
     }
 
-    int selector_closeness_threshold = 500;
+    int selector_closeness_threshold = 250;
 
     Sentry sentry(selector_closeness_threshold);
 
@@ -52,10 +52,13 @@ int main() {
         }
 
         debris_id = sentry.findDebris( frame, debris_id );
+        
+        //std::vector<float> mv = sentry.selector.getMedianTargetVelocity();
+        //std::cout << "med_vel: " << mv[0] << ", " << mv[1] << std::endl;
 
         if ( debris_id != -1 ){
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
-            writeToPID(debris_id, debris_xy[0], debris_xy[1]);
+            writeToPID(debris_id, debris_xy[0], debris_xy[1], debris_xy[2], debris_xy[3]);
         }
 
         writer.write(frame);
@@ -73,7 +76,8 @@ int main() {
     return 0;
 }
 
-void writeToPID(int id, int x, int y) {
+void writeToPID(int id, int x, int y, int nx, int ny) {
     std::cout << "sending coords to arduino (" << id << ") -- ";
-    std::cout << "x: " << x << " y: " << y << std::endl; 
+    std::cout << "x: " << x << " y: " << y;
+    std::cout << " nx: " << nx << " ny: " << ny << std::endl; 
 }

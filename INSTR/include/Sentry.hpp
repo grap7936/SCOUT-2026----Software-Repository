@@ -8,8 +8,11 @@
 #include "Detector.hpp"
 
 class Sentry {
+private:
 
-public:
+    int DEBRIS_THRESHOLD;
+    int REFRESH_FREQUENCY;
+
     int current_frame_number;
     int frame_timeout;
     cv::Mat prev_frame;
@@ -21,13 +24,13 @@ public:
     Detector detector;
     Selector selector;
 
+public:
+
     Sentry(int);
 
     void init( cv::Mat );
 
-    void pageFrame( cv::Mat, float, float );
-
-    void setNextFrame( cv::Mat );
+    void pageFrame( cv::Mat );
 
     std::vector<Target*>* getFullListPtr();
 
@@ -35,11 +38,17 @@ public:
 
     std::vector<Target*>* getNextTargetPtr();
 
+    void setNextFrame( cv::Mat );
+
     cv::Mat getNextFrame();
 
     void setPrevFrame( cv::Mat );
 
     cv::Mat getPrevFrame();
+
+    Detector* getDetectorPtr();
+
+    Selector* getSelectorPtr();
 
     std::vector<int> getTargetCoords( int );
 
@@ -51,12 +60,8 @@ public:
 
     int findDebris( cv::Mat, int);
 
-    std::vector<Target*> getRelevantTargets();
 
-    std::vector<float> getMeanTargetVelocity( std::vector<Target*>& relevant_targets );
-    std::vector<float> getMedianTargetVelocity( std::vector<Target*>& relevant_targets );
-
-    void updateDebrisLikelihood( std::vector<Target*>& relevant_targets );
+    void updateDebrisLikelihood();
 };
 
 #endif

@@ -182,16 +182,16 @@ int main() {
     // RUN ALGORITHM SCANS
     // =========================================================================
     // Tests 1-8 don't care about velocity seeding, so they rely on scan()'s default mean_vx/mean_vy (0,0)
-    selector1.scan( &target1_f1, &target1_f2, &target1_full, 0.0, 0.0 );
-    selector2.scan( &target2_f1, &target2_f2, &target2_full, 0.0, 0.0 );
-    selector3.scan( &target3_f1, &target3_f2, &target3_full, 0.0, 0.0 );
-    selector4.scan( &target4_f1, &target4_f2, &target4_full, 0.0, 0.0 );
-    selector5.scan( &target5_f1, &target5_f2, &target5_full, 0.0, 0.0 );
-    selector6.scan( &target6_f1, &target6_f2, &target6_full, 0.0, 0.0 );
-    selector7.scan( &target7_f1, &target7_f2, &target7_full, 0.0, 0.0 );
-    selector8.scan( &target8_f1, &target8_f2, &target8_full, 0.0, 0.0 );
+    selector1.scan( &target1_f1, &target1_f2, &target1_full, 0 );
+    selector2.scan( &target2_f1, &target2_f2, &target2_full, 0 );
+    selector3.scan( &target3_f1, &target3_f2, &target3_full, 0 );
+    selector4.scan( &target4_f1, &target4_f2, &target4_full, 0 );
+    selector5.scan( &target5_f1, &target5_f2, &target5_full, 0 );
+    selector6.scan( &target6_f1, &target6_f2, &target6_full, 0 );
+    selector7.scan( &target7_f1, &target7_f2, &target7_full, 0 );
+    selector8.scan( &target8_f1, &target8_f2, &target8_full, 0 );
     // Test 9 explicitly passes a nonzero mean velocity to verify it reaches the seeded Kalman state
-    selector9.scan( &target9_f1, &target9_f2, &target9_full, seeded_mean_vx, seeded_mean_vy );
+    selector9.scan( &target9_f1, &target9_f2, &target9_full, 0 );
     
 
     // =========================================================================
@@ -214,46 +214,46 @@ int main() {
     std::cout << "\nExecuting Automated Assertions..." << std::endl;
 
     // Test 1
-    for (size_t i = 0; i < target1_f2.size(); ++i) { assert(target1_f2[i]->id == expected_f2_ids_t1[i]); }
-    for (size_t i = 0; i < target1_f1.size(); ++i) { assert((target1_f1[i]->next_instance != nullptr) == expected_has_next_t1[i]); }
+    for (size_t i = 0; i < target1_f2.size(); ++i) { assert(target1_f2[i]->getID() == expected_f2_ids_t1[i]); }
+    for (size_t i = 0; i < target1_f1.size(); ++i) { assert((target1_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t1[i]); }
     assert(target1_full.size() == 3);
 
     // Test 2
-    for (size_t i = 0; i < target2_f2.size(); ++i) { assert(target2_f2[i]->id == expected_f2_ids_t2[i]); }
-    for (size_t i = 0; i < target2_f1.size(); ++i) { assert((target2_f1[i]->next_instance != nullptr) == expected_has_next_t2[i]); }
+    for (size_t i = 0; i < target2_f2.size(); ++i) { assert(target2_f2[i]->getID() == expected_f2_ids_t2[i]); }
+    for (size_t i = 0; i < target2_f1.size(); ++i) { assert((target2_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t2[i]); }
     assert(target2_full.size() == 7);
 
     // Test 3
-    for (size_t i = 0; i < target3_f2.size(); ++i) { assert(target3_f2[i]->id == expected_f2_ids_t3[i]); }
-    for (size_t i = 0; i < target3_f1.size(); ++i) { assert((target3_f1[i]->next_instance != nullptr) == expected_has_next_t3[i]); }
+    for (size_t i = 0; i < target3_f2.size(); ++i) { assert(target3_f2[i]->getID() == expected_f2_ids_t3[i]); }
+    for (size_t i = 0; i < target3_f1.size(); ++i) { assert((target3_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t3[i]); }
     assert(target3_full.size() == 6);
 
     // Test 4
-    for (size_t i = 0; i < target4_f2.size(); ++i) { assert(target4_f2[i]->id == expected_f2_ids_t4[i]); }
-    for (size_t i = 0; i < target4_f1.size(); ++i) { assert((target4_f1[i]->next_instance != nullptr) == expected_has_next_t4[i]); }
+    for (size_t i = 0; i < target4_f2.size(); ++i) { assert(target4_f2[i]->getID() == expected_f2_ids_t4[i]); }
+    for (size_t i = 0; i < target4_f1.size(); ++i) { assert((target4_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t4[i]); }
     assert(target4_full.size() == 5);
 
     // Test 5
-    for (size_t i = 0; i < target5_f1.size(); ++i) { assert((target5_f1[i]->next_instance != nullptr) == expected_has_next_t5[i]); }
+    for (size_t i = 0; i < target5_f1.size(); ++i) { assert((target5_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t5[i]); }
 
     // Test 6
-    for (size_t i = 0; i < target6_f1.size(); ++i) { assert((target6_f1[i]->next_instance != nullptr) == expected_has_next_t6[i]); }
+    for (size_t i = 0; i < target6_f1.size(); ++i) { assert((target6_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t6[i]); }
     assert(target6_f2.empty());
 
     // Test 7
-    for (size_t i = 0; i < target7_f1.size(); ++i) { assert((target7_f1[i]->next_instance != nullptr) == expected_has_next_t7[i]); }
+    for (size_t i = 0; i < target7_f1.size(); ++i) { assert((target7_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t7[i]); }
 
     // Test 8
-    for (size_t i = 0; i < target8_f1.size(); ++i) { assert((target8_f1[i]->next_instance != nullptr) == expected_has_next_t8[i]); }
+    for (size_t i = 0; i < target8_f1.size(); ++i) { assert((target8_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t8[i]); }
 
     // Test 9: brand-new track spawned with no history, seeded with the passed-in mean velocity
     assert(target9_f2.size() == 1);
     assert(target9_full.size() == 1);
-    assert(target9_f2[0]->next_instance == nullptr);
-    assert(target9_f2[0]->prev_instance == nullptr);
-    assert(target9_f2[0]->kf != nullptr);
-    assert(std::abs(target9_f2[0]->kf->statePost.at<double>(2, 0) - seeded_mean_vx) < 1e-3);
-    assert(std::abs(target9_f2[0]->kf->statePost.at<double>(3, 0) - seeded_mean_vy) < 1e-3);
+    assert(target9_f2[0]->getNextInstancePtr() == nullptr);
+    assert(target9_f2[0]->getPrevInstancePtr() == nullptr);
+    assert(selector9.getKFList().size() > 0);
+    assert(std::abs(selector9.getKFList()[0].statePost.at<double>(2, 0) - seeded_mean_vx) < 1e-3);
+    assert(std::abs(selector9.getKFList()[0].statePost.at<double>(3, 0) - seeded_mean_vy) < 1e-3);
 
     std::cout << "All tracking tests passed successfully!" << std::endl;
 
@@ -279,13 +279,12 @@ void initKF(Target* new_target) {
     int measDim = 2;
     int ctrlDim = 0;
     
-    auto KF = std::make_shared<cv::KalmanFilter>(stateDim, measDim, ctrlDim, CV_32F);
-    new_target->kf = KF;
+    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_32F);
 
-    KF->statePost.at<float>(0) = new_target->x; 
-    KF->statePost.at<float>(1) = new_target->y; 
-    KF->statePost.at<float>(2) = 0;            
-    KF->statePost.at<float>(3) = 0;            
+    KF.statePost.at<float>(0) = new_target->getX(); 
+    KF.statePost.at<float>(1) = new_target->getY(); 
+    KF.statePost.at<float>(2) = 0;            
+    KF.statePost.at<float>(3) = 0;            
 }
 
 // Configures and populates frame target pointers passed by reference
@@ -294,58 +293,58 @@ Selector defineSelector(int threshold,
                         std::vector<int>& id_f2, std::vector<int>& coords_f2, 
                         std::vector<Target*>& target_f1, std::vector<Target*>& target_f2, std::vector<Target*>& target_full) {
     
+    Selector selector(threshold, 3);
+
     for (size_t i = 0; i < id_f1.size(); i++) {
         target_f1.push_back( new Target(coords_f1[2*i], coords_f1[2*i+1], 1) );
-        target_f1[i]->id = id_f1[i];
+        target_f1[i]->setID(id_f1[i]);
         
         int x_index = 2*i;
         int y_index = 2*i + 1;
-        target_f1[i]->x = coords_f1[x_index];
-        target_f1[i]->y = coords_f1[y_index];
+        target_f1[i]->setX(coords_f1[x_index]);
+        target_f1[i]->setY(coords_f1[y_index]);
         
         initKF(target_f1[i]);
         target_full.push_back( target_f1[i] );
     }
+    selector.setPrevTargets(&target_f1);
     
     for (size_t i = 0; i < id_f2.size(); i++) {
         target_f2.push_back( new Target(coords_f2[2*i], coords_f2[2*i+1], 1) );
-        target_f2[i]->id = id_f2[i];
+        target_f2[i]->setID(id_f2[i]);
         int x_index = 2*i;
         int y_index = 2*i + 1;
-        target_f2[i]->x = coords_f2[x_index];
-        target_f2[i]->y = coords_f2[y_index];
+        target_f2[i]->setX(coords_f2[x_index]);
+        target_f2[i]->setY(coords_f2[y_index]);
     }
+    selector.setNextTargets(&target_f2);
     
-    Selector selector(threshold);
     return selector;
 }
 
 void printResults (std::vector<Target*>& target_f1, std::vector<Target*>& target_f2) {
     for (size_t j = 0; j < target_f1.size(); j++) {
-        std::cout << "id: " << target_f1[j]->id << " x,y: " << target_f1[j]->x << "," << target_f1[j]->y;
-        if (target_f1[j]->proximity != nullptr) {
-            target_f1[j]->proximity->sortByWeight();
-            std::cout << " closest_weight: " << target_f1[j]->proximity->getVertexWeight(0);
-            std::cout << " closest_id: " << target_f1[j]->proximity->getVertexID(0);
+        std::cout << "id: " << target_f1[j]->getID() << " x,y: " << target_f1[j]->getX() << "," << target_f1[j]->getY();
+        if (target_f1[j]->getProximity() != nullptr) {
+            target_f1[j]->getProximity()->sortByWeight();
+            std::cout << " closest_weight: " << target_f1[j]->getProximity()->getVertexWeight(0);
+            std::cout << " closest_id: " << target_f1[j]->getProximity()->getVertexID(0);
         }
         std::cout << std::endl;
     }
     for (size_t j = 0; j < target_f2.size(); j++) {
-        std::cout << "id: " << target_f2[j]->id << " x,y: " << target_f2[j]->x << "," << target_f2[j]->y << std::endl;
+        std::cout << "id: " << target_f2[j]->getID() << " x,y: " << target_f2[j]->getX() << "," << target_f2[j]->getY() << std::endl;
     }
 }
 
 void cleanupTestMemory(std::vector<Target*>& target_f1, std::vector<Target*>& target_f2, Selector selector) {
     for (size_t i = 0; i < target_f1.size(); i++) {
         int index = target_f1.size() - i - 1;
-        if (target_f1[index]->proximity != nullptr) {
-            target_f1[index]->proximity->~Graph();
-        }
         delete target_f1[index];
         target_f1.pop_back();
         
-        if (selector.getNextTargetsPtr() != nullptr && !selector.getNextTargetsPtr()->empty()) {
-            selector.getNextTargetsPtr()->pop_back();
+        if (selector.getNextTargets() != nullptr && !selector.getNextTargets()->empty()) {
+            selector.getNextTargets()->pop_back();
         }
     }
     for (size_t i = 0; i < target_f2.size(); i++) {
@@ -353,8 +352,8 @@ void cleanupTestMemory(std::vector<Target*>& target_f1, std::vector<Target*>& ta
         delete target_f2[index];
         target_f2.pop_back();
         
-        if (selector.getPrevTargetsPtr() != nullptr && !selector.getPrevTargetsPtr()->empty()) {
-            selector.getPrevTargetsPtr()->pop_back();
+        if (selector.getPrevTargets() != nullptr && !selector.getPrevTargets()->empty()) {
+            selector.getPrevTargets()->pop_back();
         }
     }
 }

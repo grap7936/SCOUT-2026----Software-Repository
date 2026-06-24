@@ -6,9 +6,12 @@ Sentry::Sentry(int thresh) {
     target_debris_count = {};
     prev_targets = {};
     next_targets = {};
+    frame_timeout = 4;
     detector = *(new Detector);
-    selector = *(new Selector(thresh));
+    selector = *(new Selector(thresh, frame_timeout));
     current_frame_number = -1;
+    DEBRIS_THRESHOLD = 12;
+    REFRESH_FREQUENCY = 15;
 
     // How many consecutive frames a track is allowed to go undetected before it's
     // considered permanently lost. Measured against real footage: dense, dim star
@@ -18,7 +21,7 @@ Sentry::Sentry(int thresh) {
     // since its Kalman-predicted position barely drifts while vx/vy stay near zero,
     // so it's still the closest candidate whenever it reappears. Re-tune if your
     // scene's detection dropout characteristics differ.
-    frame_timeout = 8;
+    // frame_timeout = 8;
 }
 
 // Initial frame setup routine utilizing the detection engine
@@ -26,17 +29,16 @@ void Sentry::init( cv::Mat frame ) {
     setNextFrame( frame );
     current_frame_number = 0;
     detector.scan( frame, next_targets, current_frame_number );
-    selector.setFullTargetListPtr(&full_target_list);
+    selector.setFullTargetList(&full_target_list);
 
     // No tracks exist yet on a cold start, so this naturally evaluates to {0,0} -
     // but compute and thread it explicitly rather than relying on initTarget's
     // default, to stay consistent with how pageFrame() seeds brand-new tracks.
-    std::vector<Target*> prior_relevant_targets = getRelevantTargets();
-    std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
+    // std::vector<Target*> prior_relevant_targets = getRelevantTargets(); ***!!! MOVED TO Sentry.cpp !!!***
+    // std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
 
     for (size_t i = 0; i < next_targets.size(); i++) {
-        next_targets[i]->setFrameNum(current_frame_number);
-        selector.initTarget(next_targets[i], prior_median_velocity[0], prior_median_velocity[1]);
+        selector.initTarget(next_targets[i], 0.0, 0.0);
         target_debris_count.push_back( 0 );
     }
 }
@@ -49,7 +51,7 @@ void Sentry::init( cv::Mat frame ) {
  * returns:
  *  void - Mutates internal frame caches, target pools, and updates historical debris counters.
  */
-void Sentry::pageFrame( cv::Mat frame, float mean_vx, float mean_vy ) {
+void Sentry::pageFrame( cv::Mat frame ) {
 
     // Step 1: Promote the current tracking frame to be the new baseline history window
     setPrevFrame( getNextFrame() ); 
@@ -61,7 +63,7 @@ void Sentry::pageFrame( cv::Mat frame, float mean_vx, float mean_vy ) {
     std::vector<Target*> retained_targets = {};
     for (size_t i = 0; i < prev_targets.size(); i++) {
         Target* t = prev_targets[i];
-        if ( t->next_instance == nullptr && (current_frame_number - t->getFrameNum()) <= frame_timeout ) {
+        if ( t->getNextInstancePtr() == nullptr && (current_frame_number - t->getFrameNum()) <= frame_timeout ) {
             retained_targets.push_back(t);
         }
     }
@@ -80,7 +82,7 @@ void Sentry::pageFrame( cv::Mat frame, float mean_vx, float mean_vy ) {
     
     // Step 4: Run the matching pipeline to establish links between frame instances
     int old_full_list_size = full_target_list.size();
-    selector.scan(&prev_targets, &next_targets, &full_target_list, mean_vx, mean_vy);
+    selector.scan(&prev_targets, &next_targets, &full_target_list, current_frame_number);
     int new_full_list_size = full_target_list.size();
     
     // Step 5: Expand the debris score vector to account for any brand new tracking nodes
@@ -88,10 +90,6 @@ void Sentry::pageFrame( cv::Mat frame, float mean_vx, float mean_vy ) {
         target_debris_count.push_back( 0 );
     }
 
-    // Set frame number
-    for (size_t j = 0; j < next_targets.size(); j++) {
-        next_targets[j]->setFrameNum(current_frame_number);
-    }
 }
 
 // Sets the internal storage pointer for the newest image frame matrix
@@ -129,11 +127,32 @@ cv::Mat Sentry::getPrevFrame() {
     return prev_frame;
 }
 
+
+Detector* Sentry::getDetectorPtr() {
+    return &detector;
+}
+
+Selector* Sentry::getSelectorPtr() {
+    return &selector;
+}
+
 // Extract scalar position data for a specific element via index querying
 std::vector<int> Sentry::getTargetCoords( int id ) {
-    std::vector<int> position = {0, 0};
-    position[0] = full_target_list[id]->x;
-    position[1] = full_target_list[id]->y;
+    Target* t = full_target_list[id];
+    // Return four coordinates so the caller can choose the right one for the
+    // track's state:
+    //   [0],[1] = kx, ky : last Kalman-CORRECTED position. Smoothed and accurate
+    //             while the track is being matched each frame; freezes at the last
+    //             correction if the track goes temporarily unmatched.
+    //   [2],[3] = nx, ny : Kalman PREDICTION. Keeps advancing along the track's
+    //             trajectory every frame even while unmatched (each predict() rolls
+    //             the state forward), so this is the non-frozen estimate to use
+    //             during an occlusion gap.
+    std::vector<int> position = {0, 0, 0, 0};
+    position[0] = static_cast<int>( t->getKx() );
+    position[1] = static_cast<int>( t->getKy() );
+    position[2] = t->getNx();
+    position[3] = t->getNy();
     return position;
 }
 
@@ -176,30 +195,40 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     // Increment frame counter
     current_frame_number++;
 
+    if ( current_frame_number % REFRESH_FREQUENCY == 0 ) {
+        detector.startCalibration();
+    }
+
     // Snapshot the swarm's current mean velocity from tracks as they stood entering this
     // frame, so any brand-new tracks spawned while paging can be seeded with it rather
-    // than starting from zero velocity.
-    std::vector<Target*> prior_relevant_targets = getRelevantTargets();
-    std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
+    // than starting from zero velocity. ***!!!! MOVED TO Selector.cpp !!!!***
+    // std::vector<Target*> prior_relevant_targets = getRelevantTargets();
+    // std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
     
     // Progress data buffers forward by one step sequence
-    pageFrame( frame, prior_median_velocity[0], prior_median_velocity[1] );
+    pageFrame( frame );
 
     // Extract nodes that possess a verified historical context track
-    std::vector<Target*> relevant_targets = getRelevantTargets();
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
 
     // Re-evaluate velocity trends to highlight target kinetic deviations
-    updateDebrisLikelihood( relevant_targets );
+    updateDebrisLikelihood();
+    
+    // Quick reset check to cut frame timeout early for a bad candidate
+    if ( debris_id != -1 && target_debris_count[debris_id] == 0 ) {
+        debris_id = -1;
+    }
 
     // Color frame
     // array of colors for tracking frame boxes  red, orange, yellow, green, blue, purple, pink
     std::vector<cv::Scalar> COLORS = { cv::Scalar(0,0,255),cv::Scalar(0,127,255),cv::Scalar(0,255,255),cv::Scalar(0,255,0),cv::Scalar(255,0,0),cv::Scalar(127,0,127),cv::Scalar(191,191,255) };
     for (size_t i = 0; i < next_targets.size(); i++) {
-        if ( next_targets[i]->prev_instance == nullptr ) {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 10, COLORS[next_targets[i]->id % 7], -1);
+        if ( next_targets[i]->getPrevInstancePtr() == nullptr ) {
+            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 5, COLORS[next_targets[i]->getID() % 7], -1);
         } else {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 15, COLORS[next_targets[i]->id % 7], -1);
+            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 10, COLORS[next_targets[i]->getID() % 7], 2);
         }
+        
     }
 
     Target* saved_alt_target = nullptr;
@@ -209,16 +238,16 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         Target* target = relevant_targets[j];
 
         // Core conditional gate: Flag entity if its outlier threshold score has been breached
-        if ( target_debris_count[target->id] > 4 ) {
+        if ( target_debris_count[target->getID()] > DEBRIS_THRESHOLD ) {
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
-            if ( target->id == debris_id && debris_id != -1 ) {
-                cv::circle(frame, cv::Point(target->getX(), target->getY()), 30, cv::Scalar(255, 255, 255), -1);
+            if ( target->getID() == debris_id && debris_id != -1 ) {
+                cv::circle(frame, cv::Point(target->getX(), target->getY()), 17, cv::Scalar(255, 255, 255), 7);
                 return debris_id;
             } 
             // Branch B: Anomaly found but its ID conflicts with what we are currently monitoring
-            else if ( debris_id == -1 || next_targets[0]->frame_num-frame_timeout > full_target_list[debris_id]->frame_num ) {
-                // Buffer the first alternative candidate found as a fallback trace option
+            else {
+                // Buffer the highest-likelihood alternative candidate found as a fallback trace option
                 if ( saved_alt_target == nullptr ) {
                     saved_alt_target = target;
                 } else {
@@ -229,109 +258,20 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
             }
         }
     }
+
+    // Sticky tracking: if the locked target isn't over-gate or present this frame but is
+    // still within its occlusion grace window, retain it rather than dropping the lock.
+    if ( debris_id != -1 && full_target_list[debris_id]->getFrameNum() + frame_timeout >= current_frame_number ) {
+        return debris_id;
+    }
     
     // Fallback: If primary target drops but an alternative candidate was buffered, switch tracking focus
     if ( saved_alt_target != nullptr ) {
-        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), 30, cv::Scalar(255, 255, 255), -1);
-        return saved_alt_target->id;
+        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), 17, cv::Scalar(255, 255, 255), 7);
+        return saved_alt_target->getID();
     }
 
     return -1;
-}
-
-/* Function getRelevantTargets()
- * description:
- *  Loops through the global target registry to filter out newly spawned tracks, isolating only targets that possess a verified past tracking history.
- * inputs:
- *  none
- * returns:
- *  std::vector<Target*> - A list of target pointer references that have multi-frame continuity.
- */
-std::vector<Target*> Sentry::getRelevantTargets() {
-    int size = full_target_list.size();
-    std::vector<Target*> relevant_targets = {};
-
-    // Filter list down to objects with historical link chains
-    for (int i = 0; i < size; i++) {
-        Target* curr_instance = full_target_list[i];
-        if (curr_instance->prev_instance != nullptr && curr_instance->getFrameNum() >= current_frame_number-frame_timeout) {
-            relevant_targets.push_back( curr_instance );
-        }
-    }
-
-    return relevant_targets;
-}
-
-/* Function getMeanTargetVelocity( std::vector<Target*> relevant_targets )
- * description:
- *  Computes the mean velocity components (vx, vy) across all actively tracked persistent targets to establish a group motion baseline.
- * inputs:
- *  std::vector<Target*> relevant_targets - Filtered array list of ongoing historical track targets.
- * returns:
- *  std::vector<float> - A 2-element float array representing the global average [mean_vx, mean_vy].
- */
-std::vector<float> Sentry::getMeanTargetVelocity( std::vector<Target*>& relevant_targets ) {
-    int size = relevant_targets.size();
-    float x_sum = 0.0;
-    float y_sum = 0.0;
-
-    // Accumulate total vector components across active pool
-    for (int i = 0; i < size; i++) {
-        x_sum += relevant_targets[i]->getVx();
-        y_sum += relevant_targets[i]->getVy();
-    }
-
-    // Prevent division-by-zero errors if the target vector list is empty
-    if (size == 0) return {0.0f, 0.0f};
-
-    std::vector<float> mean = { x_sum / size, y_sum / size };
-    return mean;
-}
-
-/* Function getMedianTargetVelocity( std::vector<Target*> relevant_targets )
- * description:
- *  Computes the median velocity components (vx, vy) across all actively tracked persistent
- *  targets to establish a group motion baseline. More robust than the mean when a small
- *  number of fast-moving outliers (e.g. genuine debris) would otherwise pull the baseline
- *  away from what the majority of tracked points (e.g. background stars) are actually doing.
- * inputs:
- *  std::vector<Target*> relevant_targets - Filtered array list of ongoing historical track targets.
- * returns:
- *  std::vector<float> - A 2-element float array representing the global median [median_vx, median_vy].
- */
-std::vector<float> Sentry::getMedianTargetVelocity( std::vector<Target*>& relevant_targets ) {
-    int size = relevant_targets.size();
-
-    // Prevent out-of-bounds access if the target vector list is empty
-    if (size == 0) return {0.0f, 0.0f};
-
-    // Collect each component separately so they can be sorted and ranked independently
-    std::vector<float> vx_values;
-    std::vector<float> vy_values;
-    vx_values.reserve(size);
-    vy_values.reserve(size);
-
-    for (int i = 0; i < size; i++) {
-        vx_values.push_back( relevant_targets[i]->getVx() );
-        vy_values.push_back( relevant_targets[i]->getVy() );
-    }
-
-    std::sort(vx_values.begin(), vx_values.end());
-    std::sort(vy_values.begin(), vy_values.end());
-
-    float median_vx, median_vy;
-    if ( size % 2 == 0 ) {
-        // Even count: average the two middle elements
-        median_vx = ( vx_values[size/2 - 1] + vx_values[size/2] ) / 2.0f;
-        median_vy = ( vy_values[size/2 - 1] + vy_values[size/2] ) / 2.0f;
-    } else {
-        // Odd count: take the single middle element
-        median_vx = vx_values[size/2];
-        median_vy = vy_values[size/2];
-    }
-
-    std::vector<float> median = { median_vx, median_vy };
-    return median;
 }
 
 /* Function updateDebrisLikelihood( std::vector<Target*> relevant_targets )
@@ -343,43 +283,51 @@ std::vector<float> Sentry::getMedianTargetVelocity( std::vector<Target*>& releva
  * returns:
  *  void - Directly updates object parameters and synchronizes local scoring vectors.
  */
-void Sentry::updateDebrisLikelihood( std::vector<Target*>& relevant_targets ) {
-    
-    // Establish the reference group movement baseline metrics
-    std::vector<float> median_velocity = getMedianTargetVelocity( relevant_targets );
+void Sentry::updateDebrisLikelihood() {
 
-    // Break processing early if group flows are perfectly static to avoid division errors
-    if ( median_velocity[0] == 0.0 || median_velocity[1] == 0.0 ) {
-        return;
-    }
+    // --- Tuning knobs -------------------------------------------------------
+    // SPEED_NOISE_FLOOR: how far (pixels/frame) a target must exceed the group's
+    // median speed before any score is added. This absorbs star jitter and small
+    // Kalman wobble so slow stars never creep over the threshold. Stars in this
+    // footage drift < 3 px/frame, so a floor around there isolates real outliers.
+    const float SPEED_NOISE_FLOOR = 0.5f;
+    // SCORE_GAIN: scales excess-speed (in px/frame, above the floor) into score
+    // units added per frame. With gain 1.0, an object moving 5 px/frame faster
+    // than the floor adds ~5 per frame and clears a threshold of ~12 in 3 frames.
+    const float SCORE_GAIN = 1.0f;
+    // DECAY: how much score bleeds off per frame for a target sitting below the
+    // floor, so a brief mis-track doesn't leave a star stuck with stale score.
+    const int DECAY = 6;
+    // -----------------------------------------------------------------------
 
-    // Relative percentage bounds defining drift thresholds (0.5 = 50% deviation)
-    float vx_thresh = 1.5;
-    float vy_thresh = 1.5;
+    // Establish the reference group movement baseline as a speed magnitude.
+    std::vector<float> median_velocity = selector.getMedianTargetVelocity();
 
-    // Check individual velocities against global average trend lines
+    // Compare each target's speed against the group baseline.
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
     for (size_t i = 0; i < relevant_targets.size(); i++) {
         Target* target = relevant_targets[i];
-        
-        // Calculate normalized variation percentage along the X axis component
-        float vx_diff = (median_velocity[0] - target->getVx()) / median_velocity[0];
-        if (vx_diff < 0) { vx_diff = -vx_diff; } // Absolute value step
-        
-        // Calculate normalized variation percentage along the Y axis component
-        float vy_diff = (median_velocity[1] - target->getVy()) / median_velocity[1];
-        if (vy_diff < 0) { vy_diff = -vy_diff; } // Absolute value step
 
-        // If kinematics deviate past threshold bounds, mark this target as an anomaly
-        if ( vx_diff > vx_thresh || vy_diff > vy_thresh ) {
-            
-            // Sync internal payload values back up with the local tracking metrics array
-            target_debris_count[target->id]++;
-            target->setDebrisLikelihood(target_debris_count[target->id]);
+        // Target velocity difference magnitude (direction-agnostic: fast in any direction counts).
+        
+        float velocity_diff = std::sqrt( std::pow( (median_velocity[0]-target->getVx()) ,2) + std::pow( (median_velocity[1]-target->getVy()) ,2) );
+
+        // Excess speed above the group, with the noise floor subtracted out.
+        float excess = velocity_diff - SPEED_NOISE_FLOOR;
+
+        if ( excess > 0.0f ) {
+            // Proportional reward: faster relative motion -> bigger score jump.
+            int gain = static_cast<int>( excess * SCORE_GAIN );
+            //if ( gain < 1 ) { gain = 1; } // a clear outlier always earns at least 1
+            target_debris_count[target->getID()] += gain;
         } else {
-            if ( target_debris_count[target->id] > 0 ) {
-                target_debris_count[target->id]--;
-                target->setDebrisLikelihood(target_debris_count[target->id]);
+            // Below the floor: decay toward zero, clamped so scores never go negative.
+            target_debris_count[target->getID()] -= DECAY;
+            if ( target_debris_count[target->getID()] < 0 ) {
+                target_debris_count[target->getID()] = 0;
             }
         }
+
+        target->setDebrisLikelihood( target_debris_count[target->getID()] );
     }
 }

@@ -84,23 +84,23 @@ try {
     // Loops through all indices (targets) of the target vector and outputs their center coordinates (x,y) and size in pixels
     for (size_t idx = 0; idx < targets.size(); ++idx) {
         std::cout << "Target " << idx 
-                    << ": Center=(" << targets[idx]->x << ", " << targets[idx]->y << "), "
-                    << "Size=" << targets[idx]->size << "px" << std::endl;
+                    << ": Center=(" << targets[idx]->getX() << ", " << targets[idx]->getY() << "), "
+                    << "Size=" << targets[idx]->getSize() << "px" << std::endl;
 
                       // 2. ASSERT MEMORY & POINTER VALIDITY
             assert(targets[idx] != nullptr && "Target pointer is null!");
 
             // 3. ASSERT BOUNDARY CONDITIONS (Coordinates within frame bounds)
-            assert(targets[idx]->x >= 0 && targets[idx]->x < frame.cols && "Target X coordinate is out of frame bounds!");
-            assert(targets[idx]->y >= 0 && targets[idx]->y < frame.rows && "Target Y coordinate is out of frame bounds!");
+            assert(targets[idx]->getX() >= 0 && targets[idx]->getX() < frame.cols && "Target X coordinate is out of frame bounds!");
+            assert(targets[idx]->getY() >= 0 && targets[idx]->getY() < frame.rows && "Target Y coordinate is out of frame bounds!");
 
             // 4. ASSERT REASONABLE REAL-WORLD METRICS
-            assert(targets[idx]->size > 0.0 && "Target size cannot be zero or negative!");
+            assert(targets[idx]->getSize() > 0.0 && "Target size cannot be zero or negative!");
 
             // 5. IMPROVED SIZE ASSERTION
             // In real image processing, contour sizes fluctuate slightly due to anti-aliasing/thresholding.
             // A 1.0-pixel tolerance can fail on real camera feeds. 5% tolerance is standard, but keeping 1.0 if using crisp synthetic images.
-            double delta = std::abs(expected_sizes[idx] - targets[idx]->size);
+            double delta = std::abs(expected_sizes[idx] - targets[idx]->getSize());
             assert(delta < 1.0 && "Target size does not match expected pixel area!");
         }
 
@@ -161,13 +161,13 @@ try {
     // std::minmax_element finds both the min and max iterators in a single pass.
     // We pass a custom lambda function to compare the '.size' member of the Target pointers.
     auto [min_it, max_it] = std::minmax_element(targets.begin(), targets.end(),
-        [](const Target* a, const Target* b) {
-            return a->size < b->size;
+        [](Target* a, Target* b) {
+            return a->getSize() < b->getSize();
         });
 
     // Dereference the iterators and access their size property
-    std::cout << "Minimum detected size: " << (*min_it)->size << "px\n";
-    std::cout << "Maximum detected size: " << (*max_it)->size << "px\n";
+    std::cout << "Minimum detected size: " << (*min_it)->getSize() << "px\n";
+    std::cout << "Maximum detected size: " << (*max_it)->getSize() << "px\n";
 } else {
     std::cout << "No targets detected to calculate min/max sizes.\n";
 }
@@ -184,14 +184,14 @@ int large_count = 0;   // 150 - 500 px
 int massive_count = 0; // 500+ px
 int ignored_count = 0; // Under 10 px
 
-for (const auto* tgt : targets) {
-    if (tgt->size >= 10 && tgt->size < 75) {
+for (auto* tgt : targets) {
+    if (tgt->getSize() >= 10 && tgt->getSize() < 75) {
         small_count++;
-    } else if (tgt->size >= 75 && tgt->size < 150) {
+    } else if (tgt->getSize() >= 75 && tgt->getSize() < 150) {
         medium_count++;
-    } else if (tgt->size >= 150 && tgt->size < 500) {
+    } else if (tgt->getSize() >= 150 && tgt->getSize() < 500) {
         large_count++;
-    } else if (tgt->size >= 500) {
+    } else if (tgt->getSize() >= 500) {
         massive_count++;
     } else {
         ignored_count++;
@@ -223,7 +223,7 @@ std::cout << "There are " << massive_count << " objects over 500 pixels and repr
     // **************************** start here after lunch
     // apply looping for targets to test functionality of the code
     for (size_t i = 0; i < targets.size(); i++) {
-        double delta = std::abs(expected_sizes[i] - targets[i]->size);
+        double delta = std::abs(expected_sizes[i] - targets[i]->getSize());
         
         // Assert that the detected size is within 1 pixel of our expected size
         assert(delta < 1.0 && "Target size does not match expected pixel area!");

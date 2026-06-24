@@ -13,7 +13,7 @@ the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c).
 
 Author: Graeme Appel
 
-Last Updated: 6/18/2026
+Last Updated: 6/23/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -23,21 +23,23 @@ Last Updated: 6/18/2026
 /////////////////////////////////////////////////////////////
 
 /*
-  We might not need these property definitions in here unless we want to track different object ID's to number them or track them across frames
-  but for now I will keep it in because it doesn't effect the overall output or funtionality of the code.
-    
+  The active class properties are now just the calibration/state scalars below. The old
+  per-object ID bookkeeping fields (next_object_ID counter and the tracked_objects_centr
+  map) were removed once track identity moved to the Selector - the Detector is stateless
+  with respect to identity and only reports raw detections each frame.
+
      Class Properties:
-     1.) next_object_ID = counter variable to keep track of different object ID's later in the scan() function
-     2.) tracked_objects_centr = stores center point of the object to be able to assign it a given object ID -- { object_id: (x_center, y_center) }
+     1.) end_calibration_period   = frame index at which background-noise calibration stops
+     2.) global_background_noise  = current estimated background brightness to subtract
+     3.) current_frame_num        = the frame index most recently handed to scan()
 */
 
 
 // Constructor (Equivalent to Python's __init__)
 Detector::Detector() {
-    next_object_ID = 0;
     end_calibration_period = 0;
     global_background_noise = 0.0;
-    // tracked_objects_centr initializes automatically as an empty map!
+    current_frame_num = 0;
 }
 
 // Member functions (same as described at the top of the code)
@@ -52,44 +54,64 @@ Detector::Detector() {
 
 NOTE: if the background of a region that the cubesat is viewing changes drastically, this function will be called again to set a new 
 global background noise value to be subtracted.
- 
- Inputs: 
- 1.) frame_num == current frame found by the current_frame_number variable defined in the Sentry class (starting from the start of the camera feed)
+
+ Inputs:
+ None - it reads the member current_frame_num (set via setFrameNum / scan) rather than taking an argument.
 
  Outputs:
- None
+ None - sets end_calibration_period and resets global_background_noise to 0.
 */
 
+// Sets the frame index the detector is currently working on
+void Detector::setFrameNum(int frame_num) {
+    current_frame_num = frame_num;
+}
 
-void Detector::startCalibration(int frame_num) {
+// Returns the frame index the detector is currently working on
+int Detector::getFrameNum() {
+    return current_frame_num;
+}
 
-    end_calibration_period = frame_num + 3; // the 3 is arbitrarily passed in for now as it will use 3 frames after the current frame count to 
-                                            // determine the end of finding the global background noise. This could be changed to a passed in variable 
-                                            // later if the threshold defined needs to be more specific or frquently changed
+// Returns the current estimated background-noise brightness level
+double Detector::getBackgroundNoise() {
+    return global_background_noise;
+}
 
 
-    global_background_noise = 0.0;                                         
+void Detector::startCalibration() {
+
+    // Calibrate over the next 2 frames (current_frame_num up to end_calibration_period - 1).
+    // The "+2" window length is arbitrary for now and could be promoted to a parameter later
+    // if calibration needs to span more or fewer frames.
+    end_calibration_period = current_frame_num + 2;
+
+    // Reset the running estimate so the upcoming calibration frames start fresh.
+    global_background_noise = 0.0;
 }
 
 // calibrateBackgroundNoise() member function
 
 /*
- Function summary: Uses constraint from previous function to loop through and average the global background noise of the environment being looked at.
- 
- Inputs: 
+ Function summary: Estimates the background brightness of the current frame and stores it
+ in global_background_noise for the filter() stage to subtract. Rather than averaging a
+ masked mean (the earlier approach, now commented out below), it takes the statistical MODE
+ of the blurred grayscale frame - the single most common pixel intensity - which for a
+ mostly-empty star field is the dark background level. A small fixed margin (+5) is added so
+ faint background texture is also subtracted away. This runs once per calibration frame
+ (frames before end_calibration_period); the last call's value is the one used.
+
+ Inputs:
  1.)  frame = "newest" frame of the camera view for tracking
 
  Outputs:
- 1.)  global_background_noise == overall global background noise averaged over X number of frames determined by the threshold in the previous function
+ 1.)  global_background_noise == estimated background brightness (mode intensity + 5)
 */
-
-
 
 void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
 
         
-        cv::Mat fg_mask, blur, thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+        cv::Mat fg_mask, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
         // foregound mask that converts the background subtractor image to a non-colored background 
         cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
@@ -97,18 +119,39 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
         // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
         cv::medianBlur(fg_mask, blur, 5);
 
-        // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
-        cv::threshold(blur, thresh_temp, 25, 255, cv::THRESH_BINARY);
+        // // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
+        // cv::threshold(blur, thresh_temp, 30, 255, cv::THRESH_BINARY);
 
-        // Create the background mask which the temporary threshold passes onto
-        cv::bitwise_not(thresh_temp, bg_mask);
+        // Build an intensity histogram (0..255) by tallying how many pixels have each
+        // grayscale value across the whole blurred frame.
+        int histogram[256] = {0};
+        for (int r = 0; r < blur.rows; r++) {
+            for (int c = 0; c < blur.cols; c++) {
+                histogram[ blur.at<unsigned char>(r, c) ]++;
+            }
+        }
 
-        // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background
-        double new_global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
+        // The mode (most frequent intensity) is the dominant background level in a
+        // mostly-empty frame - find the bin with the highest count.
+        int mode_intensity = 0;
+        int mode_count = 0;
+        for (int i = 0; i < 256; i++) {
+            if (histogram[i] > mode_count) { mode_count = histogram[i]; mode_intensity = i; }
+        }
+        double new_global_background_noise = static_cast<double>(mode_intensity);
+
+        // Add a small fixed margin so faint near-background texture is also subtracted.
+        global_background_noise = new_global_background_noise + 5;
+
+        // // Create the background mask which the temporary threshold passes onto
+        // cv::bitwise_not(thresh_temp, bg_mask);
+
+        // // Find the global background noise by applying the foreground and background images on top of each other to isolate white pixels on specifically the dark background
+        // double new_global_background_noise = cv::mean(fg_mask, bg_mask)[0]; 
 
 
-        // Compute averaged global back_ground_noise as (total_noise)/(num_frames_used)
-        global_background_noise = (global_background_noise + new_global_background_noise) / (2);
+        // // Compute averaged global back_ground_noise as (total_noise)/(num_frames_used)
+        // global_background_noise = (global_background_noise + new_global_background_noise) / (2);
 
 }
 
@@ -147,14 +190,14 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     // foregound mask that converts the background subtractor image to a non-colored background 
     cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
 
-    // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-    cv::medianBlur(fg_mask, blur, 5);
+    // Applies median Blur to foreground mask from last step (kernel size is 3 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
+    cv::medianBlur(fg_mask, blur, 3);
 
     // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
     cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
 
    // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise/brightness removed from subtracting the background noise and so the threshold used should be slightly lower to detect the same objects as would be detected before.
-    cv::threshold(cleaned_blur, thresh, 25 - global_background_noise, 255, cv::THRESH_BINARY);
+    cv::threshold(cleaned_blur, thresh, 10, 255, cv::THRESH_BINARY);
 
 
     // Dilate the image
@@ -218,7 +261,7 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
 
             // Draw the rectangle on the original frame
             // Color: Green (0, 255, 0), Thickness: 2
-            cv::rectangle(frame, rect, cv::Scalar(0, 255, 0), 2); // creates a rectangle on the given frame using the previously defined rect object. Makes it green with thickness of 2
+            //cv::rectangle(frame, rect, cv::Scalar(0, 255, 0), 2); // creates a rectangle on the given frame using the previously defined rect object. Makes it green with thickness of 2
 
             // Store elements in our vector of structs
             box_dims.push_back({rect.x, rect.y, rect.width, rect.height, size}); // push_back does the same as the append function in python and pushes each new element to the end of the box_dims vector set of custom dimensions defined in the struct above.
@@ -251,9 +294,9 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
 
     // initializer for the calibration process
     if (frame_num == 0) {
-
-    startCalibration(frame_num);
+        startCalibration();
     } 
+    setFrameNum(frame_num);
 
     // Call the calibrate background noise function if the current frame number is less than the end_calibration_period limit
 
@@ -277,9 +320,11 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
 
         int x_centr_pos = box.x + (box.w / 2); 
         int y_centr_pos = box.y + (box.h / 2);
+        // ***@@@!!! Replace with future centroid(box) function that returns (x,y) of brightest pixel -------------------------------------------------------------------------------------------------------------------------------------------------------
 
         // Construct new instance of target. Unassigned values default to std::nullopt as defined in the target class (this is basically the same as assigning to NONE equivalently in Python)
         Target* new_target = new Target(x_centr_pos, y_centr_pos, box.size);
+        new_target->setFrameNum(current_frame_num);
 
         targets.push_back(new_target); // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
     }
@@ -332,19 +377,4 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
 
 //     return dilated;
 // }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

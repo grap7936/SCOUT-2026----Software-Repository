@@ -5,32 +5,56 @@
 #include "Target.hpp"
 
 class Graph {
+private:
+    int root_id; // id of root node
+    int root_x, root_y;
+    int root_nx, root_ny;
+
+    std::vector<Target*> targets; // vertex instance
+    std::vector<int> weights; // stores weight of vertex with corresponding index
 
 public:
-    int root; // id of root node
-    std::vector<Target*> target; // vertex instance
-    std::vector<int> weight; // stores weight of vertex with corresponding index
     
-    // Constructor
-    Graph( int input_id );
+    // Constructor with root target and target list
+    Graph( Target &root, std::vector<Target*> targets );
+
+    // Constructor with root target
+    Graph( Target &root );
 
     // Backup Constructor
     Graph();
 
-    // Destructor
-    ~Graph();
 
-    void addVertex(Target*, float);
+    int getRootID(); // new
 
-    Target* getVertexPtr(int);
+    int getRootX(); // new
 
-    Target* getVertexPtrByID(int);
+    int getRootY(); // new
+
+    int getRootNX(); // new
+
+    int getRootNY(); // new
 
     int getVertexID(size_t);
 
     int getVertexWeight(size_t);
 
     int getVertexWeightByID(int);
+
+    Target* getVertexPtr(int);
+
+    Target* getVertexPtrByID(int);
+
+    std::vector<Target*> getTargets();
+
+    std::vector<int> getWeights();
+
+
+    void addVertex(Target*);
+
+    void addVerticesFromList(std::vector<Target*> next_targets);
+
+    void calcWeight(float gain1);
 
     void sortByWeight();
 
