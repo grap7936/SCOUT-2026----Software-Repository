@@ -31,7 +31,7 @@ void Sentry::pageFrame( cv::Mat frame ) {
         prev_targets.push_back(next_targets[i]);
     }
     clearNextTargets();
-    detector.scan( frame, next_targets );
+    detector.scan( frame, next_targets, ); // which frame number should be here -- ask Zach
     int old_full_list_size = full_target_list.size();
     selector.scan(&prev_targets, &next_targets, &full_target_list);
     int new_full_list_size = full_target_list.size();
@@ -80,14 +80,14 @@ void Sentry::clearNextTargets() {
     }
 }
 
-int Sentry::findDebris( cv::Mat frame ) {
+int Sentry::findDebris( cv::Mat frame, int frame_num ) {
     // check if initial frame
     if ( full_target_list.size() == 0 ) {
         init( frame );
         return -1;
     }
 
-    pageFrame( frame );
+    pageFrame( frame, frame_num );
 
     std::vector<Target*> relevant_targets = getRelevantTargets();
 
@@ -197,32 +197,32 @@ else
     }
 
 
-    // Test if stream operatiopn failed
+    // Test if stream operation failed
     if (Saved_Target_Data.fail()) 
-    {
-	    std::cout << "Error opening the input file."; 
-	    return;
-    }
+        {
+	        std::cout << "Error opening the input file."; 
+	        return;
+        }
 
 // Write Target data to created text file by looping through all entries -- uses range based for loop
 for (Target* target : full_target_list)
-{
-
-    // Create a pointer to go through the current linked list when reading through the list of linked lists
-    Target* current = target;
-
-    // Loop through the linked list until reaching the end which is signified by a nullptr
-    while (current != nullptr)
     {
-        Saved_Target_Data << "Target ID: " << current->id << "\t" << "Position: (" << current->x << ", " << current->y << ")\n"
-                          << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
-                          << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
 
-        // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
-        current = current->next_instance;
+        // Create a pointer to go through the current linked list when reading through the list of linked lists
+        Target* current = target;
+
+        // Loop through the linked list until reaching the end which is signified by a nullptr
+        while (current != nullptr)
+            {
+            Saved_Target_Data << "Target ID: " << current->id << "\t" << "Position: (" << current->x << ", " << current->y << ")\n"
+                              << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
+                              << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
+
+            // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
+            current = current->next_instance;
+            }
+
     }
-
-}
 
 Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
 
@@ -253,7 +253,7 @@ void Sentry::dumpOldTargets()  {
 // Loop through the vector and safely delete the actual Target objects allocated in memory
 // Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
 
-    for (Target* target : full_target_list) { // loops through all of the targets in the full target list.
+    for (Target* target : full_target_list) { // loops through all of the targets in the full target list by using a range based for loop
         Target* current = target; 
             while (current != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
                 Target* next = current->next_instance; // move to next target object in list
