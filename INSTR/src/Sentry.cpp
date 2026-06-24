@@ -371,3 +371,119 @@ void Sentry::updateDebrisLikelihood() {
         target->setDebrisLikelihood( target_debris_count[target->getID()] );
     }
 }
+
+void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
+
+/////////////////////////////////////////////////////////////
+
+/*
+ Function Summary: Takes in the full list (vector of pointers -- called full target list in the sentry code) and writes each pointer/target
+  entry into a text file. This function will likely be called to save targets before dumping any unnecessary or previously filed targets so 
+  that the processing power/speed of the system does not get consistently slower overtime. I.e this prevents fullTargetList from growing 
+  infinitely long which would cause the system to loop through a continually growing list and get consistently slower overtime. 
+
+ Inputs: 
+ 1.) std::vector<Target*> fullTargetList == List of target pointers that are continually stored by the detection, selector, and sentry scripts. 
+
+ Outputs:
+ Void
+
+ Author: Graeme Appel
+
+ Last Updated: 6/23/26
+*/
+
+/////////////////////////////////////////////////////////////
+
+// Define output stream -- preallocate
+std::ofstream Saved_Target_Data; 
+
+// If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
+if (is_first_save == true)
+    {
+    Saved_Target_Data.open("Saved_Target_Data.txt"); // opens/creates necessary text file for inputting data into
+    is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
+    }
+
+else 
+    {
+    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app); // append data to the text file
+    }
+
+
+    // Test if stream operation failed
+    if (Saved_Target_Data.fail()) 
+        {
+	        std::cout << "Error opening the input file."; 
+	        return;
+        }
+
+// Write Target data to created text file by looping through all entries -- uses range based for loop
+for (Target* target : full_target_list)
+    {
+
+        // Create a pointer to go through the current linked list when reading through the list of linked lists
+        Target* current = target;
+
+        // Loop through the linked list until reaching the end which is signified by a nullptr
+        while (current != nullptr)
+            {
+            Saved_Target_Data << "Target ID: " << current->getID() << "\t" << "Position: (" << current->getX() << ", " << current->getY() << ")\n"
+                              << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
+                              << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
+
+            // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
+            current = current->getNextInstancePtr();
+            }
+
+    }
+
+Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
+
+}
+
+void Sentry::dumpOldTargets()  {
+
+/////////////////////////////////////////////////////////////
+
+/*
+ Function Summary: Modified the full list of pointers (full_targets_list -- property in the Sentry.cpp class) and creates a pointer to a new blank vector of pointers
+  (linked lists) so that the system can keep running the code with no loss in time or processing speed. After the new vector of pointers
+   is created for the system to work with, this function deletes/dumps all of the old data written to the text file.
+
+ Inputs: 
+ None
+
+ Outputs:
+ Void
+ 
+ Author: Graeme Appel
+
+ Last Updated: 6/23/26
+*/
+
+/////////////////////////////////////////////////////////////
+
+// Loop through the vector and safely delete the actual Target objects allocated in memory
+// Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
+
+    for (Target* target : full_target_list) { // loops through all of the targets in the full target list by using a range based for loop
+        Target* current = target; 
+            while (current != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
+                Target* next = current->getNextInstancePtr(); // move to next target object in list
+                delete current; // Free the target memory
+                current = next;
+        }
+    }
+
+    // Clear the vector full_target_list of all memory locations (pointers) now that all of the target objects have been deleted. It is now a blank vector of Target* ready for new data.
+    full_target_list.clear();
+
+    // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
+    // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 
+    // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
+    target_debris_count.clear();
+
+
+
+}
