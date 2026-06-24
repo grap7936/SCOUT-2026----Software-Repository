@@ -2,19 +2,25 @@
 #define SENTRY_HPP
 
 #include <vector>
+#include <fstream>
+#include <iostream>
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Selector.hpp"
 #include "Detector.hpp"
 
 class Sentry {
-private:
 
+private:
     int DEBRIS_THRESHOLD;
     int REFRESH_FREQUENCY;
 
     int current_frame_number;
     int frame_timeout;
+    bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
+                               // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
+                               // function to False for every subsequent case.
+
     cv::Mat prev_frame;
     cv::Mat next_frame;
     std::vector<Target*> full_target_list;
@@ -23,6 +29,7 @@ private:
     std::vector<int> target_debris_count;
     Detector detector;
     Selector selector;
+
 
 public:
 
@@ -60,8 +67,11 @@ public:
 
     int findDebris( cv::Mat, int);
 
+    void writeTargetsToFile(std::vector<Target*> full_target_list);
 
     void updateDebrisLikelihood();
+
+    void dumpOldTargets();  
 };
 
 #endif
