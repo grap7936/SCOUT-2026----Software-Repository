@@ -11,16 +11,6 @@
 
 class Sentry {
 
-public:
-    cv::Mat prev_frame;
-    cv::Mat next_frame;
-    std::vector<Target*> full_target_list;
-    std::vector<Target*> prev_targets;
-    std::vector<Target*> next_targets;
-    std::vector<int> target_debris_count;
-    Detector detector;
-    Selector selector;
-
 private:
     int DEBRIS_THRESHOLD;
     int REFRESH_FREQUENCY;
@@ -31,7 +21,19 @@ private:
                                // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
                                // function to False for every subsequent case.
 
-    Sentry(int, int, float);
+    cv::Mat prev_frame;
+    cv::Mat next_frame;
+    std::vector<Target*> full_target_list;
+    std::vector<Target*> prev_targets;
+    std::vector<Target*> next_targets;
+    std::vector<int> target_debris_count;
+    Detector detector;
+    Selector selector;
+
+    
+public:
+
+    Sentry(int);
 
     void init( cv::Mat );
 
@@ -61,7 +63,7 @@ private:
 
     void clearPrevTargets();
 
-    void Sentry::clearNextTargets();
+    void clearNextTargets();
 
     void pageFrame( cv::Mat frame, int frame_num );
     
@@ -77,11 +79,11 @@ private:
 
     void updateDebrisLikelihood( std::vector<Target*> relevant_targets );
 
-    void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list);
+    void writeTargetsToFile(std::vector<Target*> full_target_list);
 
     void updateDebrisLikelihood();
 
-    void Sentry::dumpOldTargets();  
+    void dumpOldTargets();  
 };
 
 #endif
