@@ -27,9 +27,10 @@ for debris scoring.
 #include <Selector.hpp>
 
 // Constructor with custom proximity threshold and occlusion timeout
-Selector::Selector( int thresh, int timeout) {
-    this->threshold = thresh;
-    this->frame_timeout = timeout;
+Selector::Selector( int thresh, int timeout, int weight_comp) {
+    this->THRESHOLD = thresh;
+    this->FRAME_TIMEOUT = timeout;
+    this->WEIGHT_COMPOSITION = weight_comp;
 
     this->prev_targets = nullptr;
     this->next_targets = nullptr;
@@ -46,8 +47,9 @@ Selector::Selector( int thresh, int timeout) {
 
 // Default constructor 
 Selector::Selector() {
-    this->threshold = 1000;
-    this->frame_timeout = 5;
+    this->THRESHOLD = 1000;
+    this->FRAME_TIMEOUT = 5;
+    this->WEIGHT_COMPOSITION = 0.5;
 
     this->prev_targets = nullptr;
     this->next_targets = nullptr;
@@ -64,12 +66,12 @@ Selector::Selector() {
 
 // Returns threhsolding value for connecting targets
 int Selector::getThreshold() {
-    return threshold;
+    return THRESHOLD;
 }
 
 // Sets the threshold value for connecting targets (pixel distance * 10)
 void Selector::setThreshold(int thresh) {
-    threshold = thresh;
+    THRESHOLD = thresh;
 }
 
 // Returns a pointer to the previous frame's targets vector
@@ -119,12 +121,22 @@ void Selector::setCurrentFrameNum(int frame_num) {
 
 // Returns the occlusion grace window (how many frames a track may go unmatched)
 int Selector::getFrameTimeout() {
-    return frame_timeout;
+    return FRAME_TIMEOUT;
 }
 
 // Sets the occlusion grace window (how many frames a track may go unmatched)
 void Selector::setFrameTimeout(int timeout) {
-    frame_timeout = timeout;
+    FRAME_TIMEOUT = timeout;
+}
+
+// Returns the gain for weight of x,y in Graph.weight()
+float Selector::getWeightComposition() {
+    return WEIGHT_COMPOSITION;
+}
+
+// Sets the gain for weight of x,y in Graph.weight()
+void Selector::setWeightComposition(float gain1) {
+    WEIGHT_COMPOSITION = gain1;
 }
 
 /* Function determineRelevantTargets()
@@ -149,7 +161,7 @@ void Selector::determineRelevantTargets() {
     // Keep only tracks that have a historical link chain and are still within the live window
     for (int i = 0; i < size; i++) {
         Target* current_instance = (*full_list)[i];
-        if (current_instance->getPrevInstancePtr() != nullptr && current_instance->getFrameNum() >= current_frame_num - frame_timeout) {
+        if (current_instance->getPrevInstancePtr() != nullptr && current_instance->getFrameNum() >= current_frame_num - FRAME_TIMEOUT) {
             current_relevant_targets.push_back( current_instance );
         }
     }
@@ -332,7 +344,7 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
  * weights the Kalman-predicted-position distance). The finished graph is attached
  * to the track via setProximity() and later read by connect().
  * inputs:
- * float gain1 - blend factor (0..1) between measured-position and predicted-position cost.
+ * none - uses WEIGHT_COMPOSITION
  * returns:
  * void - sets the proximity graph pointer on each target in prev_targets.
  *
@@ -340,10 +352,10 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
  * the previous frame's proximity pointer without deleting it. See the review report -
  * these graphs are never freed, so this leaks once per track per frame.
  */
-void Selector::computeWeights( float gain1 ) {
+void Selector::computeWeights() {
     for ( size_t i = 0; i < prev_targets->size(); i++) {
         Graph* new_graph = new Graph(*(*prev_targets)[i], (*next_targets));
-        new_graph->calcWeight( gain1 );
+        new_graph->calcWeight( WEIGHT_COMPOSITION );
         if ( (*prev_targets)[i]->getProximity() != nullptr ) {
             delete (*prev_targets)[i]->getProximity();
         }
@@ -359,7 +371,7 @@ void Selector::computeWeights( float gain1 ) {
  * returns:
  * void - sets Target.nextInstance pointers for targets in prevTargets[].
  * - sets Target.prevInstance pointers for targets in nextTargets[].
- * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'threshold' (see Constructor).
+ * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'THRESHOLD' (see Constructor).
  */
 void Selector::connect() {
     int prev_size = prev_targets->size();
@@ -387,7 +399,7 @@ void Selector::connect() {
         }
 
         // Branching check: If error variance exceeds threshold, do not connect
-        if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > threshold) {
+        if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > THRESHOLD) {
             continue;
         } else {
             // Valid track association: Tie linked lists together across frames
@@ -601,7 +613,7 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
     estimateNextState();
 
     // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
-    computeWeights( 0.25 );
+    computeWeights();
 
     // Phase 3: Solve the cost allocation problem and update node linking identities
     connect();
