@@ -46,6 +46,8 @@ private:
 
     void clearPrevTargets();
 
+    void Sentry::clearNextTargets();
+
     void pageFrame( cv::Mat frame, int frame_num );
     
     int findDebris( cv::Mat frame, int frame_num );
