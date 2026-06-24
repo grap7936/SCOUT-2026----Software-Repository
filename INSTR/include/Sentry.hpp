@@ -30,7 +30,7 @@ private:
     Detector detector;
     Selector selector;
 
-    
+
 public:
 
     Sentry(int);
@@ -65,19 +65,7 @@ public:
 
     void clearNextTargets();
 
-    void pageFrame( cv::Mat frame, int frame_num );
-    
-    int findDebris( cv::Mat frame, int frame_num );
-
-    std::vector<Target*> getRelevantTargets();
-
-     void clearNextTargets();
-
-    std::vector<float> getMeanTargetVelocity( std::vector<Target*> relevant_targets );
-
     int findDebris( cv::Mat, int);
-
-    void updateDebrisLikelihood( std::vector<Target*> relevant_targets );
 
     void writeTargetsToFile(std::vector<Target*> full_target_list);
 
