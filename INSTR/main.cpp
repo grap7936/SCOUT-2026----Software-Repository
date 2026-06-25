@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <opencv2/opencv.hpp>
-#include <omp.h>
 #include "Graph.hpp"
 #include "Target.hpp"
 #include "Detector.hpp"
@@ -13,14 +12,11 @@ void writeToPID(int id, int x, int y, int nx, int ny);
 int main() {
 
     // Start video capture
-    cv::VideoCapture cap("/home/scout/Desktop/INSTR_sh/testing/testVideo6.mp4");
+    cv::VideoCapture cap("testing/testVideo6.mp4");
     if (!cap.isOpened()) {
         std::cerr << "Error: could not open video capture\n";
         return -1;
     }
-
-    // set parallelization thread count
-    omp_set_num_threads(4);
 
     // Retrieve camera frame dimensions and frame rate
     int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));

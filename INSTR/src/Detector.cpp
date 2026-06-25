@@ -166,6 +166,8 @@ void Detector::startCalibration() {
 
 void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
+
+        
         cv::Mat fg_mask, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
         // foregound mask that converts the background subtractor image to a non-colored background 
@@ -180,13 +182,11 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
         // Build an intensity histogram (0..255) by tallying how many pixels have each
         // grayscale value across the whole blurred frame.
         int histogram[256] = {0};
-        #pragma omp parallel for collapse(2) reduction(+:histogram[:256])
         for (int r = 0; r < blur.rows; r++) {
             for (int c = 0; c < blur.cols; c++) {
                 histogram[ blur.at<unsigned char>(r, c) ]++;
             }
         }
-        
 
         // The mode (most frequent intensity) is the dominant background level in a
         // mostly-empty frame - find the bin with the highest count.
@@ -285,7 +285,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
 
     // Note: In C++ in order to return 2 variables by a function as is done in the python script before this you must use std::pair, or by passing references.
     
-std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::contours(const cv::Mat& dilated) {
+std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::contours(cv::Mat& frame, const cv::Mat& dilated) {
     
 
     std::vector<std::vector<cv::Point>> contours_list; // cv::Point represents a point in 2D with x and y coordinates. This is put into a vector to represent a contour which is a collection of points that form the outline of a moving object. This is then put into another vector to represent all the contours in the frame.
@@ -365,15 +365,10 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
     cv::Mat frame_dilated = filter(frame);
 
     // Call contours() to get contours_list as well as each box dimensions struct for each contour (variables must be extracted from here)
-    auto [contours_list, box_dims] = contours(frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
+    auto [contours_list, box_dims] = contours(frame, frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
 
     // Loop through all box dimensions for each different contour identified to extract x and y centroid position and size for input into each target instance
-    int size = box_dims.size();
-    targets.resize(size);
-    #pragma omp parallel for
-    for (int i = 0; i < size; i++) { 
-
-        auto& box = box_dims[i];
+    for (const auto& box : box_dims) { 
 
         // define centroid position. Note that each default x and y position is at the top left corner of a given object. 
         // By adding width/2 and height/2 of the given bounding box to the x and y dimensions (situated in the upper left corner) 
@@ -387,7 +382,7 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
         Target* new_target = new Target(x_centr_pos, y_centr_pos, box.size);
         new_target->setFrameNum(current_frame_num);
 
-        targets[i] = new_target; // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
+        targets.push_back(new_target); // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
     }
 
 }

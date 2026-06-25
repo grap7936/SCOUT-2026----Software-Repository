@@ -36,7 +36,7 @@ Last Updated: 6/18/2026
 //  // main OpenCV library which includes all following necessary functions and libraries for this application
 #include <opencv2/opencv.hpp>      
 
-#include <omp.h>
+#include <map> // allows for mapping an ID to specific coordinates in the properties of the detector class
 #include <utility> // library that allows access for std::pair
 #include "Target.hpp"
 
@@ -87,7 +87,7 @@ public:
     // Backup/Default Constructor (Equivalent to Python's __init__)
     Detector();
 
-// Getter and Setter functions for control parameters
+// Member functions (same as described at the top of the code)
 
     void setBlurKernelSize(int blur_size);
 
@@ -105,11 +105,10 @@ public:
 
     int getMaxContourSize();
 
+
     void setFrameNum(int frame_num);
 
     int getFrameNum();
-
-// background noise functions
 
     double getBackgroundNoise();
 
@@ -117,11 +116,9 @@ public:
 
     void calibrateBackgroundNoise(const cv::Mat& frame);
 
-// Member functions for image characterization (same as described at the top of the code)
-
     cv::Mat filter(const cv::Mat& frame);
 
-    std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(const cv::Mat& dilated);
+    std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(cv::Mat& frame, const cv::Mat& dilated);
 
     void scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num);
 };

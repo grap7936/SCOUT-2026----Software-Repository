@@ -204,13 +204,13 @@ void Graph::calcWeight( float gain1 ) {
         // Step 1: Distance between the root's last measured position and this candidate
         int dx = root_x - targets[i]->getX();
         int dy = root_y - targets[i]->getY();
-        float norm1 = std::sqrt( dx*dx + dy*dy );
+        float norm1 = std::sqrt( std::pow(dx, 2) + std::pow(dy, 2) );
         int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
 
         // Step 2: Distance between the root's Kalman-predicted position (nx, ny) and this candidate
         int dnx = root_nx - targets[i]->getX();
         int dny = root_ny - targets[i]->getY();
-        float norm2 = std::sqrt( dnx*dnx + dny*dny );
+        float norm2 = std::sqrt( std::pow(dnx, 2) + std::pow(dny, 2) );
         int weight2 = gain2 * norm2 * 10;
 
         // Step 3: Store the blended cost at this vertex's index
@@ -219,42 +219,6 @@ void Graph::calcWeight( float gain1 ) {
     }
 
 }
-
-/* Function calcWeightOMP( float gain1 )
- * description:
- * Same as above but parallelized with OpenMP
- * inputs:
- * float gain1 - blend factor (0..1); measured-position term weight (predicted term gets 1-gain1).
- * returns:
- * void - overwrites this graph's weights[] in place (parallel to targets[]).
- */
-void Graph::calcWeightOMP( float gain1 ) {
-
-    float gain2 = 1.0 - gain1;
-
-    // Evaluate physical spacing between the root and every candidate detection in this graph
-    #pragma omp parallel for 
-    for (size_t i = 0; i < targets.size(); i++) {
-
-        // Step 1: Distance between the root's last measured position and this candidate
-        int dx = root_x - targets[i]->getX();
-        int dy = root_y - targets[i]->getY();
-        float norm1 = std::sqrt( dx*dx + dy*dy );
-        int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
-
-        // Step 2: Distance between the root's Kalman-predicted position (nx, ny) and this candidate
-        int dnx = root_nx - targets[i]->getX();
-        int dny = root_ny - targets[i]->getY();
-        float norm2 = std::sqrt( dnx*dnx + dny*dny );
-        int weight2 = gain2 * norm2 * 10;
-
-        // Step 3: Store the blended cost at this vertex's index
-        weights[i] = weight1 + weight2;
-
-    }
-
-}
-
 
 
 /* Function sortByWeight()

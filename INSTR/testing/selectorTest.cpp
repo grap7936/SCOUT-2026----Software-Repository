@@ -293,7 +293,7 @@ Selector defineSelector(int threshold,
                         std::vector<int>& id_f2, std::vector<int>& coords_f2, 
                         std::vector<Target*>& target_f1, std::vector<Target*>& target_f2, std::vector<Target*>& target_full) {
     
-    Selector selector(threshold, 3, 0.25);
+    Selector selector(threshold, 3);
 
     for (size_t i = 0; i < id_f1.size(); i++) {
         target_f1.push_back( new Target(coords_f1[2*i], coords_f1[2*i+1], 1) );
