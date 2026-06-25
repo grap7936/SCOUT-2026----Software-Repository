@@ -16,6 +16,7 @@ int main() {
     std::vector<int> id1 = { 2, 3, 4, 5, 6, 7, 8, 9 };
     std::vector<int> weight1 = { 44, 53, 65, 87, 23, 45, 12, 5 };
     std::vector<Target*> target1 = {};
+    Target root1(10, 10, 10);
     
     // Allocate targets and assign their IDs sequentially
     for ( size_t i = 0; i < id1.size(); i++) {
@@ -35,6 +36,7 @@ int main() {
     std::vector<int> id2 = { 45, 46, 54, 55, 56, 62 };
     std::vector<int> weight2 = { 92, 69, 69, 52, 30, 1 };
     std::vector<Target*> target2 = {};
+    Target root2(20, 20, 10);
     
     // Allocate targets and assign their IDs sequentially
     for ( size_t i = 0; i < id2.size(); i++) {
@@ -54,6 +56,7 @@ int main() {
     std::vector<int> id3 = { 99 };
     std::vector<int> weight3 = { 42 };
     std::vector<Target*> target3 = {};
+    Target root3(30, 30, 10);
     
     for ( size_t i = 0; i < id3.size(); i++) {
         target3.push_back( new Target(0, 0, 0) );
@@ -69,6 +72,7 @@ int main() {
     std::vector<int> id4 = { 10, 11, 12, 13 };
     std::vector<int> weight4 = { 100, 200, 300, 400 };
     std::vector<Target*> target4 = {};
+    Target root4(40, 40, 10);
     
     for ( size_t i = 0; i < id4.size(); i++) {
         target4.push_back( new Target(0, 0, 0) );
@@ -84,6 +88,7 @@ int main() {
     std::vector<int> id5 = { 20, 21, 22, 23 };
     std::vector<int> weight5 = { 50, 40, 30, 20 };
     std::vector<Target*> target5 = {};
+    Target root5(10, 10, 10);
     
     for ( size_t i = 0; i < id5.size(); i++) {
         target5.push_back( new Target(0, 0, 0) );
@@ -99,6 +104,7 @@ int main() {
     std::vector<int> id6 = { 70, 71, 72, 73 };
     std::vector<int> weight6 = { 15, 15, 15, 15 };
     std::vector<Target*> target6 = {};
+    Target root6(10, 10, 10);
     
     for ( size_t i = 0; i < id6.size(); i++) {
         target6.push_back( new Target(0, 0, 0) );
@@ -113,28 +119,28 @@ int main() {
     // EXECUTE OPERATIONS
     // =========================================================================
     
-    Graph test1(1);
-    for (size_t i = 0; i < id1.size(); i++) { test1.addVertex( target1[i], weight1[i] ); }
+    Graph test1(root1, target1);
+    test1.addVerticesFromList(target1);
     test1.sortByWeight();
 
-    Graph test2(2);
-    for (size_t i = 0; i < id2.size(); i++) { test2.addVertex( target2[i], weight2[i] ); }
+    Graph test2(root2, target2);
+    test2.addVerticesFromList(target2);
     test2.sortByWeight();
 
-    Graph test3(3);
-    for (size_t i = 0; i < id3.size(); i++) { test3.addVertex( target3[i], weight3[i] ); }
+    Graph test3(root3, target3);
+    test3.addVerticesFromList(target3);
     test3.sortByWeight();
 
-    Graph test4(4);
-    for (size_t i = 0; i < id4.size(); i++) { test4.addVertex( target4[i], weight4[i] ); }
+    Graph test4(root4, target4);
+    test4.addVerticesFromList(target4);
     test4.sortByWeight();
 
-    Graph test5(5);
-    for (size_t i = 0; i < id5.size(); i++) { test5.addVertex( target5[i], weight5[i] ); }
+    Graph test5(root5, target5);
+    test5.addVerticesFromList(target5);
     test5.sortByWeight();
 
-    Graph test6(6);
-    for (size_t i = 0; i < id6.size(); i++) { test6.addVertex( target6[i], weight6[i] ); }
+    Graph test6(root6, target6);
+    test6.addVerticesFromList(target6);
     test6.sortByWeight();
 
 

@@ -1,12 +1,10 @@
 #ifndef TARGET_HPP
 #define TARGET_HPP
 #include <opencv2/opencv.hpp>
-#include <memory>
 class Graph ; 
 
 class Target {
-
-public:
+private: // moved from public
     int id;
     int size;
     int x, y;
@@ -18,7 +16,9 @@ public:
     Target* next_instance;
     Target* prev_instance;
     Graph* proximity;
-    std::shared_ptr<cv::KalmanFilter> kf;
+    // std::shared_ptr<cv::KalmanFilter> kf; move to external array
+
+public:
 
     Target(int x, int y, int size);
         
@@ -82,9 +82,9 @@ public:
 
     void setProximity(Graph* proximity);
     
-    std::shared_ptr<cv::KalmanFilter> getKf();
+    // std::shared_ptr<cv::KalmanFilter> getKf();
 
-    void setKf(std::shared_ptr<cv::KalmanFilter> kf) ;
+    // void setKf(std::shared_ptr<cv::KalmanFilter> kf) ;
 };
         
 #endif

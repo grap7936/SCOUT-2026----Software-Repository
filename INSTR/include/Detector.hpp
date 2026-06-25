@@ -36,7 +36,7 @@ Last Updated: 6/18/2026
 //  // main OpenCV library which includes all following necessary functions and libraries for this application
 #include <opencv2/opencv.hpp>      
 
-#include <map> // allows for mapping an ID to specific coordinates in the properties of the detector class
+#include <omp.h>
 #include <utility> // library that allows access for std::pair
 #include "Target.hpp"
 
@@ -62,40 +62,66 @@ struct BoxDim {
 
 class Detector 
 {
+private:
+    // Class Properties
+    int BLUR_KERNEL_SIZE;
+    int BG_THRESHOLD_MARGIN;
+    int DILATION_ITERATIONS;
+    int MAX_CONTOUR_SIZE;
 
-/*
-  We might not need these property definitions in here unless we want to track different object ID's to number them or track them across frames
-  but for now I will keep it in because it doesn't effect the overall output or funtionality of the code.
-    
-     Class Properties:
-     1.) next_object_ID = counter variable to keep track of different object ID's later in the scan() function
-     2.) tracked_objects_centr = stores center point of the object to be able to assign it a given object ID -- { object_id: (x_center, y_center) }
-*/
+    int end_calibration_period;    // frame index at which background calibration stops
+    double global_background_noise; // current estimated background brightness to subtract
+    int current_frame_num;          // frame index most recently passed to scan()
+    /*
+      The old per-object identity fields (next_object_ID counter and the
+      tracked_objects_centr map) were removed once track identity moved to the Selector.
+      The Detector is now stateless with respect to identity and just reports raw
+      detections each frame.
+    */
 
 public:
 
-// These property lines likely are not necessary for this application but I will keep them in for completeness for the time being
-// Class Properties 
-    int next_object_ID;
-    int end_calibration_period;
-    double global_background_noise;
-    
-    // Maps an object ID (int) to a center coordinate (x, y) using std::pair<int, int>
-    std::map<int, std::pair<int, int>> tracked_objects_centr;
+    // Contructor (Equivalent to Python's __init__)
+    Detector(int blur_size, int thresh_margin, int dilation_iter, int contour_size);
 
-
-    // Constructor (Equivalent to Python's __init__)
+    // Backup/Default Constructor (Equivalent to Python's __init__)
     Detector();
 
-// Member functions (same as described at the top of the code)
+// Getter and Setter functions for control parameters
 
-    void startCalibration(int frame_num);
+    void setBlurKernelSize(int blur_size);
+
+    int getBlurKernelSize();
+
+    void setBGThresholdMargin(int thresh_margin);
+
+    int getBGThresholdMargin();
+
+    void setDilationIterations(int dilation_iter);
+
+    int getDilationIterations();
+
+    void setMaxContourSize(int contour_size);
+
+    int getMaxContourSize();
+
+    void setFrameNum(int frame_num);
+
+    int getFrameNum();
+
+// background noise functions
+
+    double getBackgroundNoise();
+
+    void startCalibration();
 
     void calibrateBackgroundNoise(const cv::Mat& frame);
 
+// Member functions for image characterization (same as described at the top of the code)
+
     cv::Mat filter(const cv::Mat& frame);
 
-    std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(cv::Mat& frame, const cv::Mat& dilated);
+    std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(const cv::Mat& dilated);
 
     void scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num);
 };
