@@ -2,6 +2,7 @@
 #define GRAPH_HPP
 
 #include <vector>
+#include <omp.h>
 #include "Target.hpp"
 
 class Graph {
@@ -55,6 +56,8 @@ public:
     void addVerticesFromList(std::vector<Target*> next_targets);
 
     void calcWeight(float gain1);
+
+    void calcWeightOMP(float gain1);
 
     void sortByWeight();
 

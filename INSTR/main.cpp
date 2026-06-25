@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <opencv2/opencv.hpp>
+#include <omp.h>
 #include "Graph.hpp"
 #include "Target.hpp"
 #include "Detector.hpp"
@@ -17,6 +18,9 @@ int main() {
         std::cerr << "Error: could not open video capture\n";
         return -1;
     }
+
+    // set parallelization thread count
+    omp_set_num_threads(4);
 
     // Retrieve camera frame dimensions and frame rate
     int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));

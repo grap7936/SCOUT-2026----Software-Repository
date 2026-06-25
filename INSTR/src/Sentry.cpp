@@ -13,7 +13,7 @@ Sentry::Sentry() {
     TRACKER_SPEED_NOISE_FLOOR = 0.5f;
     TRACKER_SCORE_GAIN = 1.0f;
 
-    DETECTOR_BG_REFRESH_FREQUENCY = 15;
+    DETECTOR_BG_REFRESH_FREQUENCY = 30;
     DETECTOR_BLUR_KERNEL_SIZE = 5;
     DETECTOR_BG_THRESHOLD_MARGIN = 10;
     DETECTOR_DILATION_ITERATIONS = 1;
@@ -203,16 +203,12 @@ int Sentry::getNumTargets() {
 
 // Loops and de-allocates indices tracking old frame targets
 void Sentry::clearPrevTargets() {
-    while ( prev_targets.size() > 0 ) {
-        prev_targets.pop_back();
-    }
+    prev_targets.clear();
 }
 
 // Loops and de-allocates indices tracking incoming target buffers
 void Sentry::clearNextTargets() {
-    while ( next_targets.size() > 0 ) {
-        next_targets.pop_back();
-    }
+    next_targets.clear();
 }
 
 /* Function findDebris( cv::Mat frame, int debris_id )
@@ -239,17 +235,8 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         detector.startCalibration();
     }
 
-    // Snapshot the swarm's current mean velocity from tracks as they stood entering this
-    // frame, so any brand-new tracks spawned while paging can be seeded with it rather
-    // than starting from zero velocity. ***!!!! MOVED TO Selector.cpp !!!!***
-    // std::vector<Target*> prior_relevant_targets = getRelevantTargets();
-    // std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
-    
     // Progress data buffers forward by one step sequence
     pageFrame( frame );
-
-    // Extract nodes that possess a verified historical context track
-    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
 
     // Re-evaluate velocity trends to highlight target kinetic deviations
     updateDebrisLikelihood();
@@ -271,6 +258,8 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
         
     }
 
+    // Extract nodes that possess a verified historical context track
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
     Target* saved_alt_target = nullptr;
     
     // Parse through tracked metrics to identity anomaly candidate conditions
@@ -325,44 +314,32 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
  */
 void Sentry::updateDebrisLikelihood() {
 
-    // --- Tuning knobs -------------------------------------------------------
-    // SPEED_NOISE_FLOOR: how far (pixels/frame) a target must exceed the group's
-    // median speed before any score is added. This absorbs star jitter and small
-    // Kalman wobble so slow stars never creep over the threshold. Stars in this
-    // footage drift < 3 px/frame, so a floor around there isolates real outliers.
-    const float SPEED_NOISE_FLOOR = 0.5f;
-    // SCORE_GAIN: scales excess-speed (in px/frame, above the floor) into score
-    // units added per frame. With gain 1.0, an object moving 5 px/frame faster
-    // than the floor adds ~5 per frame and clears a threshold of ~12 in 3 frames.
-    const float SCORE_GAIN = 1.0f;
-    // DECAY: how much score bleeds off per frame for a target sitting below the
-    // floor, so a brief mis-track doesn't leave a star stuck with stale score.
-    const int DECAY = 6;
-    // -----------------------------------------------------------------------
-
     // Establish the reference group movement baseline as a speed magnitude.
     std::vector<float> median_velocity = selector.getMedianTargetVelocity();
 
     // Compare each target's speed against the group baseline.
     std::vector<Target*> relevant_targets = selector.getRelevantTargets();
+    #pragma omp parallel for
     for (size_t i = 0; i < relevant_targets.size(); i++) {
         Target* target = relevant_targets[i];
 
         // Target velocity difference magnitude (direction-agnostic: fast in any direction counts).
-        
-        float velocity_diff = std::sqrt( std::pow( (median_velocity[0]-target->getVx()) ,2) + std::pow( (median_velocity[1]-target->getVy()) ,2) );
+        float dvx = median_velocity[0]-target->getVx();
+        float dvy = median_velocity[1]-target->getVy();
+
+        float velocity_diff = std::sqrt( dvx*dvx + dvy*dvy );
 
         // Excess speed above the group, with the noise floor subtracted out.
-        float excess = velocity_diff - SPEED_NOISE_FLOOR;
+        float excess = velocity_diff - TRACKER_SPEED_NOISE_FLOOR;
 
         if ( excess > 0.0f ) {
             // Proportional reward: faster relative motion -> bigger score jump.
-            int gain = static_cast<int>( excess * SCORE_GAIN );
+            int gain = static_cast<int>( excess * TRACKER_SCORE_GAIN );
             //if ( gain < 1 ) { gain = 1; } // a clear outlier always earns at least 1
             target_debris_count[target->getID()] += gain;
         } else {
             // Below the floor: decay toward zero, clamped so scores never go negative.
-            target_debris_count[target->getID()] -= DECAY;
+            target_debris_count[target->getID()] -= TRACKER_DECAY;
             if ( target_debris_count[target->getID()] < 0 ) {
                 target_debris_count[target->getID()] = 0;
             }
