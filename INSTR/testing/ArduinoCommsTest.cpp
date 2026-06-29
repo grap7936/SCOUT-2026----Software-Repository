@@ -6,7 +6,9 @@ Code Summary: Main execution script to test bidirectional communication between 
 
 Author: Original test arduino code written in ArduinoIDE by Graeme Appel converted to this format for use in Linux/VNC viewer by gemini
 
-Last Updated: 6/24/2026
+Last Updated: 6/29/2026
+
+
 */
 /////////////////////////////////////////////////////////////
 
@@ -19,6 +21,8 @@ Last Updated: 6/24/2026
 #include <ctime>     // For seeding the random number generator
 
 /////////////////////////////////////////////////////////////
+
+// NOTE! BEFORE RUNNING THIS CODE, COMPILE/UPLOAD "ArduinoReceive_BaseCode.ino" INTO THE ARDUINO UNO SO THAT IT HAS THE CODE NATIVE ON THE DEVICE BEFORE RUNNING THIS SCRIPT AS OTHERWISE IT WILL NOT WORK
 
 int main() {
 
@@ -41,6 +45,10 @@ int main() {
     // Opening the port forces the Arduino UNO to reset. We must sleep here to give the bootloader time to finish before sending data frames.
     std::cout << "Serial pipeline established. Waiting 2 seconds for Arduino UNO boot sequence." << std::endl;
     sleep(2); 
+
+    // flush system cache before running 1st instance
+    sender.flushCache();
+
     std::cout << "[SYSTEM READY] Pipeline active. Beginning coordinate injection stream.\n" << std::endl;
 
     // Execution Loop
