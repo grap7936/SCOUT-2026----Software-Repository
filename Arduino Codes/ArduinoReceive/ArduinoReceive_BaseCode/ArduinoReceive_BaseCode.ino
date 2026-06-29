@@ -45,7 +45,7 @@ const int PPR = 2048; // Motor Resolution/PPR (Pulses Per Revolution) -- set as 
 const int Pole_Pairs = 11; // number of Pole Pairs the given motor has -- set arbitrarily for now
 
 // BLDC motor instance matching the number of pole pairs the motor has as an input 
-BLDCmotor motor = BLDCmotor(Pole_Pairs);
+BLDCMotor motor = BLDCMotor(Pole_Pairs);
 
 // 2. Driver instance specifying the 3 PWM pins and the EN pin shown in your diagram
 BLDCDriver3PWM driver = BLDCDriver3PWM(11, 10, 9, 8);  // Inputs: 1.) IN Pin #1 connection on the Arduino to the simpleFOC board -- controls 1 pair of MOSFETs internally
@@ -124,7 +124,7 @@ void loop() {
   motor.loopFOC();
 
   // DYNAMIC CONTROL BRANCH: Execute motor movement based on the active control engine state
-  if (motor.controller == MotionControlMode::velocity) {
+  if (motor.controller == MotionControlType::velocity) {
 
     motor.move(motor_target_velocity); // Feeds target in radians per second [rads/s] for sentry testing and velocity tracking
 
@@ -187,10 +187,10 @@ void loop() {
             currentState = TRACKING_MODE;
 
             // Ensure tracking mode defaults back to absolute angle control as all tracking and movement relies on moving based off of angle and not off of any constant velocity input
-            motor.controller = MotionControlMode::angle;
+            motor.controller = MotionControlType::angle;
             motor_target_angle = 0.0;
 
-            Serial.println("SYSTEM STATE UPDATE: All Desired Tests Verified. Switching to TRACKING_MODE.");
+            Serial.println(F("SYSTEM STATE UPDATE: All Desired Tests Verified. Switching to TRACKING_MODE."));
             Serial.println("To return to TESTING_MODE, input target_Y_coordinate = -6.");
             Serial.println("Now accepting live target ID and Position Data.\n");
 
@@ -222,39 +222,43 @@ void loop() {
             motor_target_velocity = 0.0;
             motor_target_angle = 0.0;
 
-            Serial.println("SYSTEM STATE UPDATE: Returning to TEST_MODE.");
-            Serial.println("Live tracking suspended. Run any desired tests.\n");
+            Serial.println(F("SYSTEM STATE UPDATE: Returning to TEST_MODE."));
+            Serial.println(F("Live tracking suspended. Run any desired tests.\n"));
 
           }
 
          else if (targetYCoord >= 0) {
 
           // Live target operations are all based on on absolute angle measurements -- this can be changed later if needed
-          motor.controller = MotionControlMode::angle;
+          motor.controller = MotionControlType::angle;
             
           // Insert your active live camera tracking PID coordinates to motor_target_angle assignment here
 
           // Call motor and PID control functions
 
 
-            Serial.println("PACKET PROCESSING VERIFICATION");
-            Serial.print("Successfully Reconstructed ID: "); Serial.println(activeTargetID);
-            Serial.print("Successfully Reconstructed X:  "); Serial.println(targetXCoord);
-            Serial.print("Successfully Reconstructed Y:  "); Serial.println(targetYCoord);
+            Serial.println(F("PACKET PROCESSING VERIFICATION"));
+            Serial.print(F("Successfully Reconstructed ID: ")); Serial.println(activeTargetID);
+            Serial.print(F("Successfully Reconstructed X:  ")); Serial.println(targetXCoord);
+            Serial.print(F("Successfully Reconstructed Y:  ")); Serial.println(targetYCoord);
             Serial.println("\n");
 
             
           } else {
 
-            Serial.println("[WARNING] Test packet ignored. System locked in TRACKING_MODE.");
+            Serial.println(F("[WARNING] Test packet ignored. System locked in TRACKING_MODE."));
 
           }
         }
-      } // outer loop closing
+      } 
       else {
-        // Stream resynchronization
+        // Stream resynchronization: Run if header marker was '!' but end marker was corrupt
         while (Serial.available() > 0 && Serial.read() != '\n');
       }
+    }
+    else {
+      // Stream resynchronization: Run if the first byte extracted was not our designator '!'
+      while (Serial.available() > 0 && Serial.read() != '\n');
     }
   }
 }
@@ -298,14 +302,14 @@ None
 void startSentryMode(int16_t command_parameter, int16_t command_call_ID) {
 
 // In order to have a constant rate of motor spin, the motor needs to be in velocity control mode -- note that this will be switched to angle mode for the motor testing as we want to see specific controlled movements
-motor.controller = MotionControlMode::velocity;
+motor.controller = MotionControlType::velocity;
 
-Serial.println("COMMAND: Sentry Test Engaged");
-Serial.print("Motor will rotate at a constant rate until another test input is received");
-Serial.print("Target velocity received (RPM): "); Serial.println(command_parameter);
+Serial.println(F("COMMAND: Sentry Test Engaged"));
+Serial.print(F("Motor will rotate at a constant rate until another test input is received"));
+Serial.print(F("Target velocity received (RPM): ")); Serial.println(command_parameter);
 
 // Dynamically switch SimpleFOC into constant velocity tracking mode
-motor.controller = MotionControlMode::velocity;
+motor.controller = MotionControlType::velocity;
 
 // Convert incoming RPM parameters to radians per second: rad/s = RPM * (2 * PI / 60)
 motor_target_velocity = (float)command_parameter * (2.0 * PI / 60.0);
@@ -324,7 +328,7 @@ Inputs:
 
 1.) int16_t command_parameter == The command parameter in this case is a degree measurement sent from the user to this system which is converted to radians and then the motor is moved that amount.
 
-2.) 2.) int16_t command_call_ID == redundant variable but called for completeness in this case. In the execute tests function this is called with specific negative number inputs to call each test function.
+2.) int16_t command_call_ID == redundant variable but called for completeness in this case. In the execute tests function this is called with specific negative number inputs to call each test function.
 
 Outputs:
 None
@@ -335,10 +339,10 @@ None
 void testMotor(int16_t command_parameter, int16_t command_call_ID) {
 
 // Switch to angle control mode for the motor so that specific controlled movements can be initiated
-motor.controller = MotionControlMode::angle;
+motor.controller = MotionControlType::angle;
 
-Serial.println("COMMAND: Motor Test Mode engaged");
-Serial.print("Target angle received (degrees): "); Serial.println(command_parameter);
+Serial.println(F("COMMAND: Motor Test Mode engaged"));
+Serial.print(F("Target angle received (degrees): ")); Serial.println(command_parameter);
 
 // Convert input test angle (command_parameter) to radians to be used effectively in the motor.move function as inputs are required to be in redians
 motor_target_angle = (float)command_parameter * (PI / 180.0);
@@ -377,8 +381,8 @@ None
 
 void pingBilateralComms(int16_t command_parameter, int16_t command_call_ID) { 
 
-Serial.println("COMMAND: Bilateral Communications Connection testing engaged");
-Serial.print("Test Byte Value received: "); Serial.println(command_parameter);
+Serial.println(F("COMMAND: Bilateral Communications Connection testing engaged"));
+Serial.print(F("Test Byte Value received: ")); Serial.println(command_parameter);
 
 }
 
@@ -450,7 +454,7 @@ void executeTestCommands(int16_t command_parameter, int16_t command_call_ID) {
 
 if (command_call_ID == -1) { // Sentry mode of the gimbal-camera system -- this is the default mode to ensure movement before engaging tracking mode
 
-Serial.println("COMMAND: Camera/Gimbal Sweep Mode Testing engaged");
+Serial.println(F("COMMAND: Camera/Gimbal Sweep Mode Testing engaged"));
 startSentryMode(command_parameter, command_call_ID); // Call Sentry Mode function
 
 }
@@ -477,18 +481,11 @@ else if (command_call_ID == -4) { // test PID control using Mansi's code provide
 
 else { // if any incorrect command_call_ID is entered then redirect to the provided command ID statements
 
-Serial.println("Unrecognized Test Command Input received.");
+Serial.println(F("Unrecognized Test Command Input received."));
 
 }
 
-
-
-} 
-
-
-
-
-
+}
 
 
 
