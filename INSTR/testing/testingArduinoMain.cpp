@@ -63,15 +63,11 @@ None
 
 */
 
-void waitForUser(const std::string& stepMessage) {
-    std::cout << ">>> " << stepMessage << " Press ENTER to transmit package...";
-    std::cin.get(); 
-}
-
 /////////////////////////////////////////////////////////////
 
 int main() {
-    std::string serial_port = "/dev/ttyUSB0";  // establish serial connection (likely syntax for the Arduino NANO) to pass into linux system -- could also be "/dev/ttyUSB0" 
+    std::string serial_port = "/dev/ttyACM0";  // establish serial connection (likely syntax for the Arduino NANO) to pass into linux system -- could also be "/dev/ttyUSB1" 
+                                               // For Arduino UNO it will be /dev/ttyACM0" or /dev/ttyACM1"
                                                // -- check this by plug the NANO into your Jetson's USB port, open a terminal, and run-> Bash: ls /dev/tty*
 
     ArduinoSend sender(serial_port); // create instance of the ArduinoSend function
@@ -90,35 +86,100 @@ int main() {
     // flush system cache before running 1st instance
     sender.flushCache(); 
 
+    // Execution steps -- input into a switch case
+
+    // Preallocate exit testing variable which is only changed to true when inputting the command to enter tracking mode (Y = -5)
+    bool exit_testing = false;
+    
+    while(exit_testing == false) { // this causes each testing case to be tried as many times as needed until switching to TRACKING MODE each time where then it breaks our of the testing switch cases
+
     std::cout << "[SYSTEM READY] Sequence active.\n" << std::endl;
+    std::cout << "Input desired test code and then press ENTER";
+    int test_code;
+    std::cin >> test_code; // Correctly parses complete negative or positive integers
 
-    // Execution steps 
+    switch(test_code) {
 
-    // Gimbal-Camera System Sentry Mode
-    waitForUser("Execute Gimbal Sentry Test Sequence (Y = -1).");
-    // Note: the command parameter input (input 2) is in rotations per minute that the motor will move at a constant velocity in sentry mode.
-    sender.sendTargetCoordinates(0, 0, -1);
+    case -1:  // Gimbal-Camera System Sentry Mode
 
-    // Test Motor Function by moving motor to a specific degree measurement
-     waitForUser("Execute Motor Test (Y = -2).");
-     // Note: the command parameter input (input 2) is in degrees that the motor will move.
-    sender.sendTargetCoordinates(0, 25, -2); // 2nd input is the amount that the motor will move in degrees from its starting position
+        // std::cout << "Execute Gimbal Sentry Test Sequence (Y = -1).";
+        // Note: the command parameter input (input 2) is in rotations per minute that the motor will move at a constant velocity in sentry mode.
+        std::cout << "Input Constant/Double Velocity in [RPM] to spin the system in Sentry mode then press ENTER.";
+        int Sentry_RPM;
+        std::cin >> Sentry_RPM;
+        sender.sendTargetCoordinates(0, Sentry_RPM, -1);
 
-    // Ping function to test bilateral communications
-    waitForUser("Execute Communications Ping Test (Y = -3).");
-    sender.sendTargetCoordinates(0, 25, -3); // sending 25 as an arbitrary returned parameter to test functionality
+        std::cout << "Testing will continue unless user leaves TESTING MODE (i.e Y = -5). ONLY LEAVE TESTING MODE WHEN YOU ARE SURE TESTING IS FINISHED. Testing mode can be re-entered with Y = -6";
 
-    // PID controller function -- will be input in AruinoReceive once I get it from Mansi
-    waitForUser("Execute PID Controller Function Test (Y = -4).");
-    sender.sendTargetCoordinates(0, 0, -4); // other two inputs besides -3 are assigned to 0 for now, these will likely have to be altered later depending on necessary inputs of Mansi's code.
+        displayCommandMenu(); // redisplay available commands each time
 
-    // Move from testing mode to tracking mode
-    waitForUser("Advance into tracking pipeline (Y = -5).");
-    sender.sendTargetCoordinates(0, 0, -5);
+        break;
 
-    waitForUser("Return to Testing Mode (Y = -6).");
-    sender.sendTargetCoordinates(0,0,-6);
+    case -2: // Test Motor Function by moving motor to a specific degree measurement
 
+        // std::cout << "Execute Motor Test (Y = -2).";
+
+        std::cout << "Input Constant/Double Angle in [deg] to move the motor a specific amount then press ENTER.";
+        int Motor_deg; 
+        std::cin >> Motor_deg;
+        sender.sendTargetCoordinates(0, Motor_deg, -2); // 2nd input is the amount that the motor will move in degrees from its starting position
+
+        std::cout << "Testing will continue unless user leaves TESTING MODE (i.e Y = -5). ONLY LEAVE TESTING MODE WHEN YOU ARE SURE TESTING IS FINISHED. Testing mode can be re-entered with Y = -6";
+
+        displayCommandMenu(); // redisplay available commands each time
+
+
+        break;
+
+    case -3: // Ping function to test bilateral communications
+   
+        // std::cout << "Execute Communications Ping Test (Y = -3).";
+        std::cout << "Input Number/Byte to receive back to console to check comms then press ENTER.";
+        int byte_value;
+        std::cin >> byte_value;
+        sender.sendTargetCoordinates(0, byte_value, -3); // sending 25 as an arbitrary returned parameter to test functionality
+
+        std::cout << "Testing will continue unless user leaves TESTING MODE (i.e Y = -5). ONLY LEAVE TESTING MODE WHEN YOU ARE SURE TESTING IS FINISHED. Testing mode can be re-entered with Y = -6";
+
+        displayCommandMenu(); // redisplay available commands each time
+
+
+        break;
+
+    case -4: // PID controller function -- will be input in ArduinoReceive once I get it from Mansi  
+    
+        // std::cout << "Execute PID Controller Function Test (Y = -4).";
+        sender.sendTargetCoordinates(0, 0, -4); // other two inputs besides -3 are assigned to 0 for now, these will likely have to be altered later depending on necessary inputs of Mansi's code.
+
+        std::cout << "Testing will continue unless user leaves TESTING MODE (i.e Y = -5). ONLY LEAVE TESTING MODE WHEN YOU ARE SURE TESTING IS FINISHED. Testing mode can be re-entered with Y = -6";
+
+        displayCommandMenu(); // redisplay available commands each time
+
+        break;
+    
+    case -5: // Move from testing mode to tracking mode
+
+        // std::cout << "Advance into tracking pipeline (Y = -5).";
+        sender.sendTargetCoordinates(0, 0, -5);
+
+        exit_testing = true; // make exit_testing true to move to TRACKING MODE
+
+        break;
+
+    case -6: // Move from tracking mode to testing mode
+
+        // std::cout << "Return to Testing Mode (Y = -6)."
+        sender.sendTargetCoordinates(0,0,-6);
+
+        break;
+
+
+    }
+
+    std::cin.clear();
+    std::cin.ignore(256, '\n');
+}
+    
     sender.closePort();
     return 0;
 }
