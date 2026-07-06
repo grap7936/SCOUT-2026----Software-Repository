@@ -17,6 +17,7 @@ public:
     bool initializePort(); 
     bool sendTargetCoordinates(uint16_t id, int16_t  x, int16_t y);
     void closePort();
+    void flushCache();
 };
 
 #endif

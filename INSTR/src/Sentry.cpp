@@ -8,10 +8,13 @@ Sentry::Sentry() {
     next_targets = {};
     current_frame_number = -1;
 
-    TRACKER_DEBRIS_THRESHOLD = 12;
+    DEBRIS_LOG_FILENAME = "debrisLog.txt";
+    TARGET_LOG_FILENAME = "oldTargetsLog.txt";
+
+    TRACKER_DEBRIS_THRESHOLD = 20;
     TRACKER_DECAY = 6;
     TRACKER_SPEED_NOISE_FLOOR = 0.5f;
-    TRACKER_SCORE_GAIN = 1.0f;
+    TRACKER_SCORE_GAIN = 1.5f;
 
     DETECTOR_BG_REFRESH_FREQUENCY = 30;
     DETECTOR_BLUR_KERNEL_SIZE = 5;
@@ -251,9 +254,10 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     std::vector<cv::Scalar> COLORS = { cv::Scalar(0,0,255),cv::Scalar(0,127,255),cv::Scalar(0,255,255),cv::Scalar(0,255,0),cv::Scalar(255,0,0),cv::Scalar(127,0,127),cv::Scalar(191,191,255) };
     for (size_t i = 0; i < next_targets.size(); i++) {
         if ( next_targets[i]->getPrevInstancePtr() == nullptr ) {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 5, COLORS[next_targets[i]->getID() % 7], -1);
+            cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 5, COLORS[next_targets[i]->getID() % 7], -1);
         } else {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 10, COLORS[next_targets[i]->getID() % 7], 2);
+            //cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 10, COLORS[next_targets[i]->getID() % 7], 2);
+            cv::putText(frame, std::to_string(target_debris_count[next_targets[i]->getID()]), cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), cv::FONT_HERSHEY_SIMPLEX, 0.5, COLORS[next_targets[i]->getID() % 7], 1, cv::LINE_AA);
         }
         
     }
@@ -271,7 +275,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
             if ( target->getID() == debris_id && debris_id != -1 ) {
-                cv::circle(frame, cv::Point(target->getX(), target->getY()), 17, cv::Scalar(255, 255, 255), 7);
+                cv::circle(frame, cv::Point(static_cast<int>(target->getX()), static_cast<int>(target->getY())), 17, cv::Scalar(255, 255, 255), 3);
                 return debris_id;
             } 
             // Branch B: Anomaly found but its ID conflicts with what we are currently monitoring
@@ -296,8 +300,17 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     
     // Fallback: If primary target drops but an alternative candidate was buffered, switch tracking focus
     if ( saved_alt_target != nullptr ) {
-        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), 17, cv::Scalar(255, 255, 255), 7);
+        cv::circle(frame, cv::Point(static_cast<int>(saved_alt_target->getX()), static_cast<int>(saved_alt_target->getY())), 17, cv::Scalar(255, 255, 255), 3);
         return saved_alt_target->getID();
+    }
+
+
+    // As the number of targets grows, the memory required to hold it grows larger. After a certain size, dump old targets
+    int cutoff = 2000;
+    if (selector.getTargetListOffset() > cutoff) {
+        writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+cutoff), TARGET_LOG_FILENAME, true);
+        dumpOldTargets(cutoff);
+        selector.setTargetListOffset(0);
     }
 
     return -1;
@@ -349,7 +362,7 @@ void Sentry::updateDebrisLikelihood() {
     }
 }
 
-void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
+void Sentry::writeTargetsToFile(std::vector<Target*> target_list, std::string filename, bool print_all_instances) {
 
 /////////////////////////////////////////////////////////////
 
@@ -372,54 +385,64 @@ void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
 
 /////////////////////////////////////////////////////////////
 
-// Define output stream -- preallocate
-std::ofstream Saved_Target_Data; 
+    // Define output stream -- preallocate
+    std::ofstream Saved_Target_Data; 
 
-// If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
-if (is_first_save == true)
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt"); // opens/creates necessary text file for inputting data into
-    is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
-    }
-
-else 
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app); // append data to the text file
-    }
-
-
-    // Test if stream operation failed
-    if (Saved_Target_Data.fail()) 
+    // If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
+    if (is_first_save == true)
         {
-	        std::cout << "Error opening the input file."; 
-	        return;
+        Saved_Target_Data.open(filename); // opens/creates necessary text file for inputting data into
+        is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
+        Saved_Target_Data << "id, x,y, kx,ky, vx,vy, score\n";
+        }
+    else 
+        {
+        Saved_Target_Data.open(filename, std::ios::app); // append data to the text file
         }
 
-// Write Target data to created text file by looping through all entries -- uses range based for loop
-for (Target* target : full_target_list)
-    {
-
-        // Create a pointer to go through the current linked list when reading through the list of linked lists
-        Target* current = target;
-
-        // Loop through the linked list until reaching the end which is signified by a nullptr
-        while (current != nullptr)
+        // Test if stream operation failed
+        if (Saved_Target_Data.fail()) 
             {
-            Saved_Target_Data << "Target ID: " << current->getID() << "\t" << "Position: (" << current->getX() << ", " << current->getY() << ")\n"
-                              << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
-                              << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
-
-            // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
-            current = current->getNextInstancePtr();
+                std::cout << "Error opening the input file."; 
+                return;
             }
 
-    }
+    // Write Target data to created text file by looping through all entries -- uses range based for loop
+    for (Target* target : target_list)
+        {
+            // Create a pointer to go through the current linked list when reading through the list of linked lists
+            Target* current = target;
 
-Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
+            // check if printing all instances or just most recent
+            if (print_all_instances) {
+                // Find first instance in linked list
+                while (current->getPrevInstancePtr() != nullptr ) {
+                    current = current->getPrevInstancePtr();
+                }
+            }
+            
+            Saved_Target_Data << current->getID();
+
+            // Loop through the linked list until reaching the end which is signified by a nullptr
+            while (current != nullptr)
+                {
+                Saved_Target_Data 
+                    << ",\t" << current->getX() << "," << current->getY()
+                    << ",\t" << current->getKx() << "," << current->getKy()
+                    << ",\t" << current->getVx() << "," << current->getVy()
+                    << ",\t" << current->getDebrisLikelihood() << "\n";
+
+                // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
+                current = current->getNextInstancePtr();
+                }
+
+        }
+
+    Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
 
 }
 
-void Sentry::dumpOldTargets()  {
+void Sentry::dumpOldTargets(int cutoff_index)  {
 
 /////////////////////////////////////////////////////////////
 
@@ -429,7 +452,7 @@ void Sentry::dumpOldTargets()  {
    is created for the system to work with, this function deletes/dumps all of the old data written to the text file.
 
  Inputs: 
- None
+ int cutoff_index - index at which all preceeding elements are deleted
 
  Outputs:
  Void
@@ -444,22 +467,24 @@ void Sentry::dumpOldTargets()  {
 // Loop through the vector and safely delete the actual Target objects allocated in memory
 // Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
 
-    for (Target* target : full_target_list) { // loops through all of the targets in the full target list by using a range based for loop
-        Target* current = target; 
-            while (current != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
-                Target* next = current->getNextInstancePtr(); // move to next target object in list
-                delete current; // Free the target memory
-                current = next;
+    for (int i = 0; i < cutoff_index; i++) { // loops through all of the targets in the full target list by using a range based for loop
+        Target* current = full_target_list[i]; 
+        // loop through LL deleting all instances
+        while (current->getNextInstancePtr() != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
+            current = current->getNextInstancePtr(); // move to next target object in list
+            delete current->getPrevInstancePtr(); // Free the previous target memory
         }
+        delete current;
+
     }
 
     // Clear the vector full_target_list of all memory locations (pointers) now that all of the target objects have been deleted. It is now a blank vector of Target* ready for new data.
-    full_target_list.clear();
+    full_target_list.erase(full_target_list.begin(), full_target_list.begin()+cutoff_index);
 
     // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
     // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 
     // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
-    target_debris_count.clear();
+    target_debris_count.erase(target_debris_count.begin(), target_debris_count.begin()+cutoff_index);
 
 
 

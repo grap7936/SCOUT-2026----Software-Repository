@@ -166,14 +166,18 @@ void Detector::startCalibration() {
 
 void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
-        cv::Mat fg_mask, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+        cv::Mat mono, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
-        // foregound mask that converts the background subtractor image to a non-colored background 
-        cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
+        if (frame.channels() == 1) {
+            mono = cv::Mat(frame);
+        } else if (frame.channels() >= 3) {
+            // foregound mask that converts the background subtractor image to a non-colored background 
+            cv::cvtColor(frame, mono, cv::COLOR_BGR2GRAY);
+        }
 
         // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-        cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
-
+        cv::medianBlur(mono, blur, BLUR_KERNEL_SIZE);
+        
         // // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
         // cv::threshold(blur, thresh_temp, 30, 255, cv::THRESH_BINARY);
 
@@ -241,13 +245,18 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
   // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
   // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
   
-    cv::Mat fg_mask, blur, thresh_temp, bg_mask, thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+    cv::Mat mono, blur, thresh_temp, bg_mask, thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
-    // foregound mask that converts the background subtractor image to a non-colored background 
-    cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
+    // mono mask that converts the background subtractor image to a non-colored background 
+    if (frame.channels() == 1) {
+        mono = cv::Mat(frame);
+    } else if (frame.channels() >= 3) {
+        // mono mask that converts the background subtractor image to a non-colored background 
+        cv::cvtColor(frame, mono, cv::COLOR_BGR2GRAY);
+    }
 
-    // Applies median Blur to foreground mask from last step (kernel size is 3 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-    cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
+    // Applies median Blur to mono mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
+    cv::medianBlur(mono, blur, BLUR_KERNEL_SIZE);
 
     // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
     cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
@@ -345,6 +354,64 @@ Outputs:
 
 */
 
+// Computes centroid of a rectangle defined by (x,y,w,h) from the input frame
+std::vector<float> Detector::computeCentroid(const cv::Mat& frame, int x, int y, int w, int h) {
+    // Verify the image is valid and grayscale
+    auto image = cv::Mat(frame);
+    if (image.empty())
+    {
+        return {0.0, 0.0};
+    }
+
+    if (image.channels() > 1)
+    {
+        cv::cvtColor(frame, image, cv::COLOR_BGR2GRAY); // convert the active frame input's background to grayscale/monochrome
+    }
+
+    // Clamp the ROI to the image boundaries
+    int startX = std::max(0, x);
+    int startY = std::max(0, y);
+
+    int endX = std::min(image.cols, x + w);
+    int endY = std::min(image.rows, y + h);
+
+    float sumI = 0.0;
+    float sumX = 0.0;
+    float sumY = 0.0;
+
+    for (int row = startY; row < endY; ++row)
+    {
+        const uint8_t* pRow = image.ptr<uint8_t>(row);
+
+        for (int col = startX; col < endX; ++col)
+        {
+            float I = static_cast<float>(pRow[col]);
+
+            sumI += I;
+            sumX += col * I;
+            sumY += row * I;
+        }
+    }
+
+    // If there is no intensity in the ROI, return its center
+    if (sumI <= 0.0)
+    {
+        float tempX = startX + (endX - startX) / 2.0;
+        float tempY = startY + (endY - startY) / 2.0;
+        return
+        {
+            tempX,
+            tempY
+        };
+    }
+
+    return
+    {
+        sumX / sumI,
+        sumY / sumI
+    };
+}
+
 
 void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num) {
 
@@ -379,12 +446,12 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
         // By adding width/2 and height/2 of the given bounding box to the x and y dimensions (situated in the upper left corner) 
         // we center each x and y position in the center/centroid of each box
 
-        int x_centr_pos = box.x + (box.w / 2); 
-        int y_centr_pos = box.y + (box.h / 2);
-        // ***@@@!!! Replace with future centroid(box) function that returns (x,y) of brightest pixel -------------------------------------------------------------------------------------------------------------------------------------------------------
+        // int x_centr_pos = box.x + (box.w / 2); 
+        // int y_centr_pos = box.y + (box.h / 2);
+        std::vector<float> centroid = computeCentroid(frame, box.x, box.y, box.w, box.h);
 
         // Construct new instance of target. Unassigned values default to std::nullopt as defined in the target class (this is basically the same as assigning to NONE equivalently in Python)
-        Target* new_target = new Target(x_centr_pos, y_centr_pos, box.size);
+        Target* new_target = new Target(centroid[0], centroid[1], box.size);
         new_target->setFrameNum(current_frame_num);
 
         targets[i] = new_target; // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as

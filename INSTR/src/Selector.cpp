@@ -106,6 +106,15 @@ void Selector::setCurrentFrameNum(int frame_num) {
     current_frame_num = frame_num;
 }
 
+// Returns current offset in the full target list for relevant targets scan
+int Selector::getTargetListOffset() {
+    return relevant_target_list_offset;
+}
+
+// Sets the current offset in the full target list for relevant targets scan
+void Selector::setTargetListOffset(int offset) {
+    relevant_target_list_offset = offset;
+}
 
 // Returns a pointer to the previous frame's targets vector
 std::vector<Target*>* Selector::getPrevTargets() {
@@ -540,6 +549,11 @@ void Selector::connect() {
     // Allocation tracking bitset to map which prospective destinations have been locked
     std::vector<bool> next_targets_used(next_targets->size(), 0);
 
+    // Simple connect, check if one or less objects within threshold.
+
+
+    // Connect remaining objects using hungarian algorithm
+
     // Build the 2D linear assignment matrix (Rows = Previous targets, Columns = Next targets)
     std::vector<std::vector<int>> proximity_matrix;
     for ( int i = 0; i < prev_size; i++ ) {
@@ -639,14 +653,15 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
     KF.measurementMatrix = (cv::Mat_<double>(2,4) << 1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0);
 
     // Tune filter noise models
-    // Process noise covariance (Q)
-    KF.processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-4;
+
+    // Process noise covariance (Q) - increasing this makes KF learn new speeds faster
+    KF.processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-2; // was 1e-4
     
-    // Measurement noise covariance (R)
+    // Measurement noise covariance (R) - noise pixel position
     KF.measurementNoiseCov = cv::Mat::eye(measDim, measDim, CV_64F) * 1e-1;
     
-    // Posteriori error estimate covariance (P)
-    KF.errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1.0;
+    // Posteriori error estimate covariance (P) - noise error in first estimate (initialization)
+    KF.errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 3.0; // was 1.0
 
     // Seed the filter with the initial position coordinates; velocity starts at the swarm's current mean velocity
     KF.statePost = cv::Mat_<double>(4,1);

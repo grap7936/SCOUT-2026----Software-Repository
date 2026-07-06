@@ -119,28 +119,28 @@ int main() {
     // EXECUTE OPERATIONS
     // =========================================================================
     
-    Graph test1(root1, target1);
-    test1.addVerticesFromList(target1);
+    Graph test1(root1);
+    test1.addVerticesFromList(target1, weight1);
     test1.sortByWeight();
 
-    Graph test2(root2, target2);
-    test2.addVerticesFromList(target2);
+    Graph test2(root2);
+    test2.addVerticesFromList(target2, weight2);
     test2.sortByWeight();
 
-    Graph test3(root3, target3);
-    test3.addVerticesFromList(target3);
+    Graph test3(root3);
+    test3.addVerticesFromList(target3, weight3);
     test3.sortByWeight();
 
-    Graph test4(root4, target4);
-    test4.addVerticesFromList(target4);
+    Graph test4(root4);
+    test4.addVerticesFromList(target4, weight4);
     test4.sortByWeight();
 
-    Graph test5(root5, target5);
-    test5.addVerticesFromList(target5);
+    Graph test5(root5);
+    test5.addVerticesFromList(target5, weight5);
     test5.sortByWeight();
 
-    Graph test6(root6, target6);
-    test6.addVerticesFromList(target6);
+    Graph test6(root6);
+    test6.addVerticesFromList(target6, weight6);
     test6.sortByWeight();
 
 

@@ -15,6 +15,7 @@ private:
     int THRESHOLD;
     int FRAME_TIMEOUT;
     float WEIGHT_COMPOSITION;
+    std::string TARGET_LOG_FILENAME;
 
     std::vector<Target*>* prev_targets;
     std::vector<Target*>* next_targets;
@@ -53,6 +54,10 @@ public:
     int getCurrentFrameNum();
 
     void setCurrentFrameNum(int frame_num);
+
+    int getTargetListOffset();
+
+    void setTargetListOffset(int offset);
 
 
     // Getters and Setters of Lists (all pointers except KF)

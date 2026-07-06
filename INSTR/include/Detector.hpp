@@ -123,6 +123,8 @@ public:
 
     std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> contours(const cv::Mat& dilated);
 
+    std::vector<float> computeCentroid(const cv::Mat& frame, int x, int y, int w, int h);
+
     void scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num);
 };
 

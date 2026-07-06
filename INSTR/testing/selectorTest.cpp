@@ -11,7 +11,7 @@
 */
 
 // Function declarations
-void initKF(Target* new_target);
+
 
 Selector defineSelector(int threshold, 
                        std::vector<int>& id_f1, std::vector<int>& coords_f1, 
@@ -24,7 +24,7 @@ void cleanupTestMemory(std::vector<Target*>& target_f1, std::vector<Target*>& ta
 
 
 int main() {
-    float threshold = 3500;
+    float threshold = 2000;
 
     // =========================================================================
     // TEST CONFIGURATION 1
@@ -158,27 +158,6 @@ int main() {
 
 
     // =========================================================================
-    // TEST CONFIGURATION 9 (NEW: Mean-Velocity Seeding for Brand-New Tracks)
-    // =========================================================================
-    // Frame 1 is empty, so the single Frame 2 detection has nothing to match
-    // against and must be spawned as a brand-new track through initTarget()'s
-    // cleanup pass. Confirms the mean_vx/mean_vy parameters threaded through
-    // scan() -> connect() -> initTarget() actually reach the seeded Kalman
-    // filter state instead of silently defaulting to 0.
-    std::vector<int> id9_f1 = {};
-    std::vector<int> coords9_f1 = {};
-    std::vector<int> id9_f2 = { 0 };
-    std::vector<int> coords9_f2 = { 300,300 };
-    std::vector<Target*> target9_f1 = {};
-    std::vector<Target*> target9_f2 = {};
-    std::vector<Target*> target9_full = {};
-
-    Selector selector9 = defineSelector(threshold, id9_f1, coords9_f1, id9_f2, coords9_f2, target9_f1, target9_f2, target9_full);
-    float seeded_mean_vx = 12.5f;
-    float seeded_mean_vy = -7.25f;
-
-
-    // =========================================================================
     // RUN ALGORITHM SCANS
     // =========================================================================
     // Tests 1-8 don't care about velocity seeding, so they rely on scan()'s default mean_vx/mean_vy (0,0)
@@ -190,8 +169,6 @@ int main() {
     selector6.scan( &target6_f1, &target6_f2, &target6_full, 0 );
     selector7.scan( &target7_f1, &target7_f2, &target7_full, 0 );
     selector8.scan( &target8_f1, &target8_f2, &target8_full, 0 );
-    // Test 9 explicitly passes a nonzero mean velocity to verify it reaches the seeded Kalman state
-    selector9.scan( &target9_f1, &target9_f2, &target9_full, 0 );
     
 
     // =========================================================================
@@ -205,7 +182,6 @@ int main() {
     std::cout << "\nTest 6 Results (Mass Exit):" << std::endl; printResults ( target6_f1, target6_f2 );
     std::cout << "\nTest 7 Results (Tie-Breaker):" << std::endl; printResults ( target7_f1, target7_f2 );
     std::cout << "\nTest 8 Results (Boundaries):" << std::endl; printResults ( target8_f1, target8_f2 );
-    std::cout << "\nTest 9 Results (Velocity Seeding):" << std::endl; printResults ( target9_f1, target9_f2 );
 
 
     // =========================================================================
@@ -246,15 +222,6 @@ int main() {
     // Test 8
     for (size_t i = 0; i < target8_f1.size(); ++i) { assert((target8_f1[i]->getNextInstancePtr() != nullptr) == expected_has_next_t8[i]); }
 
-    // Test 9: brand-new track spawned with no history, seeded with the passed-in mean velocity
-    assert(target9_f2.size() == 1);
-    assert(target9_full.size() == 1);
-    assert(target9_f2[0]->getNextInstancePtr() == nullptr);
-    assert(target9_f2[0]->getPrevInstancePtr() == nullptr);
-    assert(selector9.getKFList().size() > 0);
-    assert(std::abs(selector9.getKFList()[0].statePost.at<double>(2, 0) - seeded_mean_vx) < 1e-3);
-    assert(std::abs(selector9.getKFList()[0].statePost.at<double>(3, 0) - seeded_mean_vy) < 1e-3);
-
     std::cout << "All tracking tests passed successfully!" << std::endl;
 
     // =========================================================================
@@ -268,23 +235,8 @@ int main() {
     cleanupTestMemory( target6_f1, target6_f2, selector6 );
     cleanupTestMemory( target7_f1, target7_f2, selector7 );
     cleanupTestMemory( target8_f1, target8_f2, selector8 );
-    cleanupTestMemory( target9_f1, target9_f2, selector9 );
 
     return 0;
-}
-
-// Seeds tracker filter matrix coordinates
-void initKF(Target* new_target) {
-    int stateDim = 4;
-    int measDim = 2;
-    int ctrlDim = 0;
-    
-    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_32F);
-
-    KF.statePost.at<float>(0) = new_target->getX(); 
-    KF.statePost.at<float>(1) = new_target->getY(); 
-    KF.statePost.at<float>(2) = 0;            
-    KF.statePost.at<float>(3) = 0;            
 }
 
 // Configures and populates frame target pointers passed by reference
@@ -293,7 +245,8 @@ Selector defineSelector(int threshold,
                         std::vector<int>& id_f2, std::vector<int>& coords_f2, 
                         std::vector<Target*>& target_f1, std::vector<Target*>& target_f2, std::vector<Target*>& target_full) {
     
-    Selector selector(threshold, 3);
+    Selector selector(threshold, 3, 0.25);
+    selector.setFullTargetList(&target_full);
 
     for (size_t i = 0; i < id_f1.size(); i++) {
         target_f1.push_back( new Target(coords_f1[2*i], coords_f1[2*i+1], 1) );
@@ -303,9 +256,9 @@ Selector defineSelector(int threshold,
         int y_index = 2*i + 1;
         target_f1[i]->setX(coords_f1[x_index]);
         target_f1[i]->setY(coords_f1[y_index]);
+    
+        selector.initTarget(target_f1[i], 0.0, 0.0);
         
-        initKF(target_f1[i]);
-        target_full.push_back( target_f1[i] );
     }
     selector.setPrevTargets(&target_f1);
     

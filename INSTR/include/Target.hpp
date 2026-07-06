@@ -7,8 +7,8 @@ class Target {
 private: // moved from public
     int id;
     int size;
-    int x, y;
-    int nx, ny; 
+    float x, y;
+    float nx, ny; 
     float vx, vy;
     float kx, ky;
     int debris_likelihood;
@@ -20,17 +20,17 @@ private: // moved from public
 
 public:
 
-    Target(int x, int y, int size);
+    Target(float x, float y, int size);
         
     int getID();
 
     void setID(int id);
 
-    int getX();
+    float getX();
 
     void setX(int x);
 
-    int getY();
+    float getY();
 
     void setY(int y);
 
@@ -38,11 +38,11 @@ public:
 
     void setSize(int size);
 
-    int getNx();
+    float getNx();
     
     void setNx(int nx);
 
-    int getNy();
+    float getNy();
 
     void setNy(int ny);
 

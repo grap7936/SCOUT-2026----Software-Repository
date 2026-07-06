@@ -164,6 +164,20 @@ void Graph::addVertex( Target* vertex ) {
     weights.push_back ( 0 );
 }
 
+/* Function addVertex( Target* vertex, int weight )
+ * description:
+ *  Appends a new target into tracking vector.
+ * inputs:
+ *  Target* vertex - Pointer to the target being evaluated.
+ *  int weight - custom weight value, usually from graphTest.cpp
+ * returns:
+ *  void - Modifies the targets vector in-place.
+ */
+void Graph::addVertex( Target* vertex, int weight ) {
+    targets.push_back( vertex );
+    weights.push_back ( weight );
+}
+
 /* Function addVerticesFromList( std::vector<Target*> vertices )
  * description:
  *  Appends several new targets into tracking vector.
@@ -176,6 +190,23 @@ void Graph::addVerticesFromList( std::vector<Target*> vertices ) {
     int size = vertices.size();
     for (int i = 0; i < size; i++) {
         addVertex( vertices[i] );
+    }
+    
+}
+
+/* Function addVerticesFromList( std::vector<Target*> vertices, std::vector<int> weight )
+ * description:
+ *  Appends several new targets into tracking vector.
+ * inputs:
+ *  std::vector<Target*> vertices - List of pointers to targets being evaluated.
+ *  std::vector<int> weight - List of weights corresponding to vertices list
+ * returns:
+ *  void - Modifies the targets vector in-place.
+ */
+void Graph::addVerticesFromList( std::vector<Target*> vertices, std::vector<int> weight ) {
+    int size = vertices.size();
+    for (int i = 0; i < size; i++) {
+        addVertex( vertices[i], weight[i] );
     }
     
 }

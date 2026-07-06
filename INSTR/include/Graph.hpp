@@ -36,15 +36,15 @@ public:
 
     int getRootNY(); // new
 
-    int getVertexID(size_t);
+    int getVertexID(size_t index);
 
-    int getVertexWeight(size_t);
+    int getVertexWeight(size_t index);
 
-    int getVertexWeightByID(int);
+    int getVertexWeightByID(int id); 
 
-    Target* getVertexPtr(int);
+    Target* getVertexPtr(int index);
 
-    Target* getVertexPtrByID(int);
+    Target* getVertexPtrByID(int id);
 
     std::vector<Target*> getTargets();
 
@@ -53,7 +53,11 @@ public:
 
     void addVertex(Target*);
 
+    void addVertex(Target*, int weight); // new
+
     void addVerticesFromList(std::vector<Target*> next_targets);
+
+    void addVerticesFromList(std::vector<Target*> next_targets, std::vector<int> weight); // new
 
     void calcWeight(float gain1);
 

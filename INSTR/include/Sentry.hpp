@@ -13,6 +13,9 @@
 class Sentry {
 private:
 
+    std::string DEBRIS_LOG_FILENAME;
+    std::string TARGET_LOG_FILENAME;
+
     int TRACKER_DEBRIS_THRESHOLD;
     int TRACKER_DECAY;
     float TRACKER_SPEED_NOISE_FLOOR;
@@ -97,9 +100,9 @@ public:
     void updateDebrisLikelihood();
 
     // storage management
-    void writeTargetsToFile(std::vector<Target*> full_target_list);
+    void writeTargetsToFile(std::vector<Target*> target_list, std::string filename, bool print_all_instances);
 
-    void dumpOldTargets();
+    void dumpOldTargets(int cutoff_index);
 };
 
 #endif
