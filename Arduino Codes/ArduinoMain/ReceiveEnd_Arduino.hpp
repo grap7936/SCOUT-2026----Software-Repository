@@ -7,7 +7,7 @@ Code Summary:
 
 Author: Graeme Appel
 
-Last Updated: 7/7/2026
+Last Updated: 7/8/2026
 */
 
 
@@ -41,8 +41,8 @@ public:
 
     // Define all Class member functions
     JetsonPackage read(); // defines JetsonPackage function to checking and unpack all data coming from the Jetson
-    void test();
-    void pingBilateralComms(int16_t parameter);
+    void motor_test();
+    void ping_bilateral_comms(int16_t parameter);
     void write(uint16_t FRAME_NUM, float CURRENT_MOTOR_POS);
 
 
