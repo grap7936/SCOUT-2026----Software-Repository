@@ -7,14 +7,14 @@ Code Summary:
 
 Author: Graeme Appel
 
-Last Updated: 7/7/2026
+Last Updated: 7/8/2026
 */
 
 
 /////////////////////////////////////////////////////////////
 
 // Include Necessary libraries and includes
-#include <ReceiveEnd_Arduino.hpp>
+#include "ReceiveEnd_Arduino.hpp"
 #include <SimpleFOC.h>
 
 /////////////////////////////////////////////////////////////
@@ -72,9 +72,9 @@ Outputs:
 
 /////////////////////////////////////////////////////////////
 
-JetsonCommand ArduinoReceiveClass::read() {
+JetsonPackage ArduinoReceiveClass::read() {
 
-    JetsonCommand Data_Package = {0, 0, 0, false};
+    JetsonPackage Data_Package = {0, 0, 0, false};
 
     if (Serial.available() >= 8) {
         if (Serial.read() == '!') {
@@ -133,6 +133,10 @@ void ArduinoReceiveClass::motor_test() {
     motor_target_angle = motor.shaft_angle + (2 * PI); // move forward the current motor angle one rotation (360 degrees forward)
     
     delay(10); // Let the motor settle slightly
+
+    // NOTE: prints a bare, unlabeled float so the Jetson's readMotorPosition() std::stod() can parse it.
+    // The Jetson MUST consume this line (see readMotorPosition) or it will linger in the serial buffer.
+
     Serial.println(motor.shaft_angle, 4); // Report position
 }
 
