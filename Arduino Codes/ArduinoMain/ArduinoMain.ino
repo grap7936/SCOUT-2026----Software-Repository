@@ -22,7 +22,8 @@ Last Updated: 7/8/2026
 // volatile because these are written inside CamInterrupt() (an ISR) and read in loop().
 // Without volatile the compiler may cache a stale copy and never see the ISR's updates.
 volatile float CURRENT_MOTOR_POS = 0.0;
-volatile int FRAME_NUM = 0; // Frame number counter starting from when the camera begins sending and processing data each time after an interrupt -- initialized to 0 for the time being, this will be changed later in the code.float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
+volatile int FRAME_NUM = 0; // Frame number counter starting from when the camera begins sending and processing data each time after an interrupt -- initialized to 0 for the time being, this will be changed later in the code.
+float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
 
 bool testModeActive = true;
 float motor_target_angle = 0.0; // Continuous absolute angle tracking variable for the testMotor function and for keeping track of angle for tracking -- in [rads]
