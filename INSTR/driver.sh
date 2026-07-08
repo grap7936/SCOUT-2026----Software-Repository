@@ -12,12 +12,9 @@
 #          PingPID      -> back to Standby
 #          TestMotor    -> back to Standby
 #          TestCam      -> back to Standby
-#          IdleCam      -> video capture, tracking running, not driving motor
-#               YawZero       -> rotate to home, back to IdleCam
-#               DrawTracking  -> draw overlays, back to IdleCam
-#               DebrisTracking -> main program driving motor
-#                    Error    -> return to Standby
-#                    stop     -> return to IdleCam
+#          IdleCam      -> video capture, tracking running, not driving motor     
+#          DebrisTracking -> main program driving motor
+#                    stop     -> return to Standby
 #     -> Power Off
 
 set -uo pipefail

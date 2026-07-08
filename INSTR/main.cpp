@@ -9,6 +9,8 @@
 #include "Detector.hpp"
 #include "Selector.hpp"
 #include "Sentry.hpp"
+#include "ArduinoSend.hpp"
+#include <unistd.h>  // For sleep() and usleep()
 
 using namespace VmbCPP;
 
@@ -70,7 +72,7 @@ int main() {
 
         if ( debris_id != -1 ){
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
-            writeToPID(debris_id, debris_xy[0], debris_xy[1], debris_xy[2], debris_xy[3]);
+            writeToPID(sender, debris_id, debris_xy[0], debris_xy[1], debris_xy[2], debris_xy[3]);
         }
 
         writer.write(frame);

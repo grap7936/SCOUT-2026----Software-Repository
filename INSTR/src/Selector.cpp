@@ -551,26 +551,107 @@ void Selector::connect() {
 
     // Simple connect, check if one or less objects within threshold.
 
+    // Step 1: for every detection, count how many prev_targets hold it as their
+    // single sub-threshold candidate. A count > 1 means the singleton is contested.
+    std::vector<int> singleton_claims(next_size, 0);     // claims on a detection by 1-candidate tracks
+    std::vector<int> sole_candidate_col(prev_size, -1);  // the lone candidate col per prev (-1 if !=1 candidate)
 
-    // Connect remaining objects using hungarian algorithm
-
-    // Build the 2D linear assignment matrix (Rows = Previous targets, Columns = Next targets)
-    std::vector<std::vector<int>> proximity_matrix;
-    for ( int i = 0; i < prev_size; i++ ) {
-        proximity_matrix.push_back( (*prev_targets)[i]->getProximity()->getWeights() );
+    for ( int j = 0; j < prev_size; j++ ) {
+        std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
+        int found = -1;
+        int count = 0;
+        for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
+            if ( w[c] <= THRESHOLD ) {
+                count++;
+                found = c;
+                if ( count > 1 ) { break; } // no need to keep counting past 2
+            }
+        }
+        if ( count == 1 ) {
+            sole_candidate_col[j] = found;
+            singleton_claims[found]++;
+        }
+        // count == 0 -> sole_candidate_col stays -1, track is dropped (no defer, no connect)
+        // count >= 2 -> sole_candidate_col stays -1, track is deferred below
     }
 
-    // Execute Hungarian Optimizer to discover the globally minimized cost association path
+    // Step 2: commit uncontested singletons, defer everything ambiguous.
+    std::vector<int> hungarian_rows; // prev_target indices that still need the optimizer
+    for ( int j = 0; j < prev_size; j++ ) {
+        std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
+
+        // Recount only enough to classify this row (0, 1, or 2+ candidates).
+        int candidate_count = 0;
+        for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
+            if ( w[c] <= THRESHOLD ) { candidate_count++; if ( candidate_count > 1 ) break; }
+        }
+
+        if ( candidate_count == 0 ) {
+            continue; // no plausible match -> drop from consideration entirely
+        }
+
+        int sole = sole_candidate_col[j];
+        if ( candidate_count == 1 && sole != -1
+             && singleton_claims[sole] == 1
+             && next_targets_used[sole] == false ) {
+            // Uncontested singleton: connect immediately (mirrors the Hungarian commit path).
+            Target* prev = (*prev_targets)[j];
+            Target* next = prev->getProximity()->getVertexPtr(sole);
+
+            prev->setNextInstancePtr( next );
+            next->setPrevInstancePtr( prev );
+            next->setID( prev->getID() );
+
+            next_targets_used[sole] = true;
+            (*full_list)[ next->getID() ] = next;
+        } else {
+            // Contested singleton or multi-candidate: leave it for the optimizer.
+            hungarian_rows.push_back(j);
+        }
+    }
+
+    // Build the column map: the real next_target indices still undetermined after the
+    // greedy pass (i.e. not claimed by an uncontested singleton). The Hungarian matrix
+    // is built over ONLY these columns, so its width shrinks to the contested detections
+    // rather than spanning all of next_targets. hungarian_cols[local_col] -> real col.
+    std::vector<int> hungarian_cols;
+    for ( int c = 0; c < next_size; c++ ) {
+        if ( !next_targets_used[c] ) { hungarian_cols.push_back(c); }
+    }
+
+    // Build the 2D linear assignment matrix over the trimmed (deferred rows) x
+    // (undetermined columns) sub-problem. Each row pulls only the weights at the
+    // surviving columns, in hungarian_cols order, so row[local_col] corresponds to
+    // hungarian_cols[local_col] in the real next_targets indexing.
+    std::vector<std::vector<int>> proximity_matrix;
+    for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
+        std::vector<int> full_row = (*prev_targets)[ hungarian_rows[r] ]->getProximity()->getWeights();
+        std::vector<int> trimmed_row;
+        trimmed_row.reserve(hungarian_cols.size());
+        for ( size_t lc = 0; lc < hungarian_cols.size(); lc++ ) {
+            trimmed_row.push_back( full_row[ hungarian_cols[lc] ] );
+        }
+        proximity_matrix.push_back( trimmed_row );
+   }
+
+    // Execute Hungarian Optimizer on the trimmed matrix (may be empty -> no-op).
     std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
 
-    // Evaluate associations assigned to each historical trace entry
-    for ( int j = 0; j < prev_size; j++ ) {
-        int connect_index = col_from_row[j];
-        
-        // Safeguard matching outputs against structural rectangular padding indexes
-        if ( connect_index > next_size - 1 ) {
-            continue;
+    // Evaluate associations assigned to each DEFERRED historical trace entry.
+    // r indexes the trimmed matrix rows; hungarian_rows[r] maps back to the prev_target,
+    // and hungarian_cols[local_col] maps the solver's column back to the real next_target.
+    for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
+        int j = hungarian_rows[r];
+        int local_col = col_from_row[r];
+
+        // Safeguard against rectangular padding indexes produced by the optimizer
+        // (padding columns have no entry in the trimmed column map).
+        if ( local_col < 0 || local_col > (int)hungarian_cols.size() - 1 ) {
+           continue;
         }
+
+        // Translate the solver's local column back into the real next_targets index.
+        int connect_index = hungarian_cols[local_col];
 
         // Branching check: If error variance exceeds threshold, do not connect
         if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > THRESHOLD) {
