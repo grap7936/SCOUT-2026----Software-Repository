@@ -1,3 +1,16 @@
+/////////////////////////////////////////////////////////////
+/*
+Code Summary:
+
+Author: Zachary Dyre, Graeme Appel (only added read motor portion)
+
+Last Updated: 7/9/2026
+
+
+*/
+/////////////////////////////////////////////////////////////
+
+
 #include <iostream>
 #include "ArduinoSend.hpp"
 #include <unistd.h>  // For sleep() and usleep()
@@ -18,7 +31,9 @@ int main() {
 
     sender.sendTargetCoordinates(-3, -3, -3);
 
-    // sender.readMotorPosition();
+    double motorPosition = sender.readMotorPosition(); // get double variable for motor position
+
+    std::cout << " Motor Position Detected: " << motorPosition << " [radians]" << std::endl;
 
 }   
 
