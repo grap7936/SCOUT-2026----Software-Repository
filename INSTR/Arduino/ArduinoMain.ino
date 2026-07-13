@@ -1,11 +1,30 @@
 /////////////////////////////////////////////////////////////
 
 /*
-Code Summary: 
+Code Summary: This code sets up all necessary parameters for a simple FOC motor connected to an Arduino that is connected to a Jetson. After setting up the motor,
+              driver and encoder with specified hardware parameters, the main loop receives 8 bit packages of data from the ArduinoSend and testArduinoMain scripts from the Jetson
+              and runs this in a switch statement with different test cases. In the case of a -1 input sentry mode is engaged and the motor begins to spin at a constant rate which
+              rotates the gimbal system. In the case of a -2 input, the motor is tested by moving it 1 full revolution (360 degrees) from its current position. In the case of a -3,
+              a ping test is performed and sends a byte of data back from the Jetson to the Arduino then back to the Jetson to confirm the bilateral comms connection. In the case 
+              of a -4 input that is the PID test. A -5 input switches from testing mode to tracking mode. A -6 input switches back from tracking to testing mode.
+
+(Explanation from original main code for more detail on the Testing and tracking modes) -- a bit outdated but helps to give an idea of the design of testing and tracking mode
+TRACKING MODE: This code takes x and y coordinates as well as object IDs from a sendTargetCoordinates function in C++ meant for the linux environment in VNC viewer for the Jetson and RaspberryPI.
+All of this data 16 bit serial UART data that has been repackaged into 8 bit serial UART sections sent from the Jetson using the ArduinoSend code. 
+This code sets up the baud rate (bits per second/bps) at a high speed/efficient data transfer option in the setup loop. During the main loop, the Arduino first reads
+in sequentially each 8 bit package of data sent from the Jetson and assigns it to the variable that it is representing. After this, the binary data that was moved
+and packaged into 8 bit packages when sent to the Arduino is repackaged together into 16 bit data representing the x and y coordinates of any given target as well 
+as its object ID.  
+
+TESTING MODE: target x and y inputs are still taken in just as in testing mode in the same 16 to 8 then back to 16 bit converted format (object ID inputs are always 0 as they are not 
+relevant for the testing side). Negative y coordinate inputs trigger each different test function detailed in the C++ script entitled "testArduinoMain.cpp" and also at the functions at 
+the bottom of this code. Each function has a negative y input which indicates which test function should be called and then the x coordinate input is a command parameter also passed into
+each function which helps to execute the required functionality, such as moving a servo motor a certain number of degrees.
+
 
 Author: Graeme Appel
 
-Last Updated: 7/8/2026
+Last Updated: 7/13/2026
 */
 
 
@@ -15,6 +34,7 @@ Last Updated: 7/8/2026
 
 #include "ReceiveEnd_Arduino.hpp" 
 #include <SimpleFOC.h> // library with applicable functions for the Brushless DC (BLDC) motor controlled by a SimpleFOC (Field Oriented Control)
+#include <PinChangeInterrupt.h> // library to change another pin on the NANO to be an interrupt pin -- we need to allow for 3 interrupt pins, 2 for tbe encoder, 1 for the camera
 
 /////////////////////////////////////////////////////////////
 
@@ -51,12 +71,12 @@ Encoder encoder = Encoder(2, 3, PPR); // Inputs: 1.) Digitial PWM/Interrupt pin 
 void doA() { encoder.handleA(); }
 void doB() { encoder.handleB(); }
 
-// Pin the camera/external frame-sync signal is wired to. NOTE: On the ATmega328P (UNO/NANO) only pins 2 and 3 support attachInterrupt(), and both are
-// already used by the encoder above. CAM_FRAME_PIN below is therefore a PLACEHOLDER -- set it to whatever pin your camera strobe actually lands on. If that pin is NOT 2 or 3, attachInterrupt()
-// will not fire on it and you'll need a Pin Change Interrupt (e.g. the PinChangeInterrupt library) instead. This attaches cleanly as-is only if CAM_FRAME_PIN is a hardware-interrupt-capable pin.
+// Updated from Pin 2 to Pin 4.
+// Pins 2 and 3 are completely dedicated to high-speed encoder phase matching
+// Pin 4 will now handle the camera's frame-sync pulse. -- this is done using the PinChangeInt library to reconfigure pin functionality
+// Note depending on Electrical team's preferences, this might have to be changed to another pin but is set as pin 4 for the time being.
 
-const int CAM_FRAME_PIN = 2; // PLACEHOLDER -- change to the real camera frame-sync pin
-
+const int CAM_FRAME_PIN = 4;
 
 
 // Camera / External Hardware Frame Interrupt
@@ -95,8 +115,11 @@ void setup() {
   // latches on each frame event. Without this, write() would always report Frame [0] Pos: 0.0000.
   // RISING assumes the camera pulses the line high once per frame -- change the edge (RISING/FALLING/
   // CHANGE) to match your camera's actual signal. See the CAM_FRAME_PIN note above re: pin choice.
+  // Also: Replaced standard attachInterrupt logic.
+  // Standard digitalPinToInterrupt() only works on pins 2 and 3[cite: 1]. 
+  // We swap it out for the library's pin-change macros to enable interrupts on Pin 4.
   pinMode(CAM_FRAME_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(CAM_FRAME_PIN), CamInterrupt, RISING);
+  attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(CAM_FRAME_PIN), CamInterrupt, RISING);
 
   driver.init(); // Configures pins 11, 10, and 9 as high-frequency PWM outputs and sets the hardware enable pin (Pin 8) to wake up the SimpleFOC Mini gate driver chip.
     
@@ -115,7 +138,6 @@ void setup() {
 }
 
 /////////////////////////////////////////////////////////////
-// ***************************** Start by Reviewing this tomorrow morning and debugging *****************************************
 
 void loop() {
   
@@ -201,12 +223,14 @@ void loop() {
 
     // Execute synchronous pipeline updates back to the Linux application host
     // Note: only send frame/position telemetry when we did NOT just emit the -2 bare float,
-    // so the two response formats never collide in the serial buffer.
+    // so the two response formats never collide in the serial buffer. 
+
+    // I.e data packages of code are sent provided the -2 test in testing mode has been done first.
+
     if (Data_Package.hasNewData && !sentMotorTelemetry) {
         ArduinoReceive.write(FRAME_NUM, CURRENT_MOTOR_POS);
     }
 }
-
 
 
 
