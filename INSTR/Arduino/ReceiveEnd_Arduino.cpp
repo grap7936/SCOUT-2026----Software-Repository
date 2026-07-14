@@ -3,7 +3,8 @@
 // NOTE: Ensure that this file (header file) as well as the ArduinoReceive.cpp file and the Main file are in the same folder before sending to the Arduino as otherwise this will not function properly
 
 /*
-Code Summary: 
+Code Summary:  This code defines all of the separate user defined functions necessary for initializing connection between the Jetson and Arduino; receiving and parsing data sent
+ from the Jetson to the Arduino; testing various system components; and writing pertinent target data back to the Jetson.
 
 Author: Graeme Appel
 
@@ -164,7 +165,7 @@ void ArduinoReceiveClass::ping_bilateral_comms(int16_t parameter) {
 
 /* 5.) write() function
 
-Function description: Takes in the Frame Number of the camera since each interrupt and the current motor position and outputs them back to the Jetson
+Function description: Takes in the Frame Number of the camera since each interrupt and the current motor position and outputs them back to the Jetson so that they can be saved to a text file.
 
 Inputs: 
 1.) uint16_t FRAME_NUM: The frame number of the camera since each interrupt.
@@ -182,7 +183,7 @@ None
 void ArduinoReceiveClass::write(uint16_t FRAME_NUM, float CURRENT_MOTOR_POS) {
 
     // Structured confirmation telemetry pipeline back down to the Jetson
-    Serial.print(F("SUCCESS: Frame ["));
+    Serial.print(F("Frame ["));
     Serial.print(FRAME_NUM);
     Serial.print(F("] Pos: "));
     Serial.println(CURRENT_MOTOR_POS, 4);
