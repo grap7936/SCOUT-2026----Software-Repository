@@ -24,7 +24,7 @@ each function which helps to execute the required functionality, such as moving 
 
 Author: Graeme Appel
 
-Last Updated: 7/13/2026
+Last Updated: 7/14/2026
 */
 
 
@@ -52,7 +52,11 @@ float motor_target_velocity = 0.0; // Continuous absolute velocity tracking vari
 // Initialize necessary motor setup details: (subject to change later once we know the specific motor parameters)
 const int PPR = 2048; // Motor Resolution/PPR (Pulses Per Revolution) -- set as an arbitrary 2048 number for now before knowing accurate motor specs
 const int Pole_Pairs = 11; // number of Pole Pairs the given motor has -- set arbitrarily for now
-
+// Necessary camear parameters 
+float const CAM_FRAME_WIDTH_PX = 2464.0f; // camera frame width in pixels
+// float const CAM_FRAME_HEIGHT_PX = 2064.0f; // uncomment only if needed
+// float const CAM_FRAME_HEIGHT_RAD = 6.09  * (PI/180.0f);// camera frame height in radians -- FOV converted from degree input
+float const CAM_FRAME_WIDTH_RAD =  8.21 * (PI/180.0f); // camera frame width in radians -- FOV converted from degree input
 // BLDC motor instance matching the number of pole pairs the motor has as an input 
 BLDCMotor motor = BLDCMotor(Pole_Pairs);
 
@@ -160,10 +164,13 @@ void loop() {
             
             // >= 0 -> target_position = PID(Command)
             motor.controller = MotionControlType::angle;
+
+            // Compute the angular error between the target position and the center of the frame
+            float rad_diff = ArduinoReceive.getRadDiff(CAM_FRAME_WIDTH_PX, CAM_FRAME_WIDTH_RAD, Data_Package.x);
             
             // -------------------------------------------------------------
-            // Pass target coordinates to Mansi's PID loop function here
-            // motor_target_angle = MansiPID(Data_Package.x); 
+            // Pass rad_diff to Mansi's PID code which then the result of that will be passed to the motor to move towards the target
+            // ex: the line after the PID code would just be: motor_target_angle = motor.shaft_angle + rad_diff_after_PID; or just simply: motor_target_angle = MansiPID(rad_diff);
             // -------------------------------------------------------------
             
         } 
