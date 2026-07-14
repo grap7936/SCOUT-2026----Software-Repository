@@ -8,7 +8,7 @@ Code Summary:  This code defines all of the separate user defined functions nece
 
 Author: Graeme Appel
 
-Last Updated: 7/13/2026
+Last Updated: 7/14/2026
 */
 
 
@@ -190,4 +190,38 @@ void ArduinoReceiveClass::write(uint16_t FRAME_NUM, float CURRENT_MOTOR_POS) {
 
 
 };
+
+/////////////////////////////////////////////////////////////
+
+/* 6.) getRadDiff() function
+
+Function description: Takes in the camera's frame width in both pixels and radians. Applies basic math to get the radians per pixel and center coordinate of the camera frame.
+ After getting this, the function then multiplies it by radians per pixel to get the radians difference. This radians difference will later be passed to the PID loop which will 
+ be passed top the motor to know how much to move the motor to point at the target.
+
+Inputs: 
+1.) double Frame_width_px == given camera frame width in pixels -- specified as a global variable in the ArduinoMain.ino code
+2.) double Frame_width_rads == given camera frame width in radians -- specified as a global variable in the ArduinoMain.ino code
+3.) int16_t target_x == x position of any given target as stored by the ArduinoReceive side in JetsonPackage.x for each separate object
+
+Outputs:
+1.) double rad_diff == difference in radians between the center of the frame of the camera and the target identified. This will likely be the x-dimension of the camera frame as currently the gimbal motor system can only move in one dimension.
+
+*/
+
+
+/////////////////////////////////////////////////////////////
+
+float ArduinoReceiveClass::getRadDiff((float Frame_width_px, float Frame_width_rads, int16_t target_x)) {
+
+    float rads_per_pixel = (Frame_width_rads / Frame_width_px); // gets radians per pixel conversion
+    float center_coord_pixels = (Frame_width_px / 2.0f); // gets center of the frame in pixels along the x-dimension -- uses floating point division for better efficiency and no risk in variable type mismatch
+
+    float pos_diff_pixels = target_x - center_coord_pixels ; // gets the difference in pixels (positive is to the right of the frame center and negative is to the left of the frame center) between an object and the center of the frame along the x-axis
+    float rad_diff = pos_diff_pixels * rads_per_pixels; // convert to radians
+
+    return rad_diff;
+
+}
+
 
