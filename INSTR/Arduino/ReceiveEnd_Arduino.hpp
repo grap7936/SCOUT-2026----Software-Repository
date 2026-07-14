@@ -3,11 +3,12 @@
 // NOTE: Ensure that this file (header file) as well as the ArduinoReceive.cpp file and the Main file are in the same folder before sending to the Arduino as otherwise this will not function properly
 
 /*
-Code Summary: 
+Code Summary: Contains all the relevant function declarations for each function detailed inside ReceiveEnd_Arduino.cpp and also defines the JetsonPackage structure that stores
+x and y position as well as object ID and detecting if a new data packet is available.
 
 Author: Graeme Appel
 
-Last Updated: 7/13/2026
+Last Updated: 7/14/2026
 */
 
 
@@ -44,7 +45,7 @@ public:
     void motor_test();
     void ping_bilateral_comms(int16_t parameter);
     void write(uint16_t FRAME_NUM, float CURRENT_MOTOR_POS);
-
+    float getRadDiff(float Frame_width_px, float Frame_width_rads, int16_t target_x);
 
 };
 
