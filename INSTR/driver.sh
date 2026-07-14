@@ -23,7 +23,7 @@ set -uo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-cd /home/scout/Desktop/INSTR_sh || exit
+cd /home/scout/Desktop/INSTR || exit
 
 # Directory holding the executables you will define. Override with EXEC_DIR.
 EXEC_DIR="${EXEC_DIR:-$(dirname "$(readlink -f "$0")")/bin}"

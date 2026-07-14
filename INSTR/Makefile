@@ -1,12 +1,12 @@
 # Compiler settings
 CXX = g++
-CXXFLAGS = -g -Wall -Wextra -std=c++17 -fopenmp -Iinclude -I/usr/include/opencv4 -I/home/scout/vimba-x/VimbaX_2026-1/api/include -I/home/scout/vimba-x/VimbaX_2026-1/api/include/VmbCPP
+CXXFLAGS = -g -Wall -Wextra -std=c++17 -fopenmp -Iinclude -I/usr/local/include/opencv4 -I/home/scout/vimba-x/VimbaX_2026-2/api/include -I/home/scout/vimba-x/VimbaX_2026-2/api/include/VmbCPP
 
 # OpenCV configuration 
 OPENCV = $(shell pkg-config --cflags --libs opencv4)
 
 # Alvium camera configuration
-ALVIUM = -L/home/scout/vimba-x/VimbaX_2026-1/api/lib -Wl,-rpath,/home/scout/vimba-x/VimbaX_2026-1/api/lib -lVmbCPP -lVmbC
+ALVIUM = -L/home/scout/vimba-x/VimbaX_2026-2/api/lib -Wl,-rpath,/home/scout/vimba-x/VimbaX_2026-2/api/lib -lVmbCPP -lVmbC
 
 # set directory for vimba/alvium
 `DVMB_DIR=/home/scout/vimba-x/VimbaX*`

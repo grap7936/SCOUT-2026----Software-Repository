@@ -36,6 +36,15 @@ Last Updated: 6/18/2026
 //  // main OpenCV library which includes all following necessary functions and libraries for this application
 #include <opencv2/opencv.hpp>      
 
+// OpenCV CUDA modules for GPU-accelerated frame preprocessing on Jetson.
+// core: GpuMat container; cudaimgproc: cvtColor/threshold; cudaarithm: subtract;
+// cudafilters: median blur + morphology (dilate). These require an OpenCV build
+// with WITH_CUDA=ON and the opencv_contrib cudafilters/cudaimgproc modules.
+#include <opencv2/core/cuda.hpp>
+#include <opencv2/cudaimgproc.hpp>
+#include <opencv2/cudaarithm.hpp>
+#include <opencv2/cudafilters.hpp>
+
 #include <omp.h>
 #include <utility> // library that allows access for std::pair
 #include "Target.hpp"
@@ -72,12 +81,47 @@ private:
     int end_calibration_period;    // frame index at which background calibration stops
     double global_background_noise; // current estimated background brightness to subtract
     int current_frame_num;          // frame index most recently passed to scan()
+
+    /*
+      GPU-side preprocessing state (Jetson).
+      These device buffers persist across frames so we don't reallocate GPU memory
+      30x/second. Each stage of filter() writes into a dedicated GpuMat; only the
+      final dilated mask is copied back to the host for findContours().
+
+        d_frame   - uploaded raw frame (BGR or already-mono)
+        d_mono    - single-channel grayscale
+        d_blur    - median-blurred grayscale
+        d_cleaned - blur minus global background noise
+        d_thresh  - binary thresholded
+        d_dilated - dilated final mask (downloaded to host)
+    */
+    cv::cuda::GpuMat d_frame, d_mono, d_blur, d_cleaned, d_thresh, d_dilated;
+
+    /*
+      Pre-built CUDA filter primitives. Constructing these allocates internal GPU
+      scratch buffers, so we build them ONCE (in initCudaFilters, called from the
+      constructors) and reuse every frame. They depend only on kernel/iteration
+      parameters, which are fixed after construction.
+    */
+    cv::Ptr<cv::cuda::Filter> d_median_filter;   // median blur
+    cv::Ptr<cv::cuda::Filter> d_dilate_filter;   // morphological dilation
+
+    // Builds the CUDA filter primitives from the current BLUR_KERNEL_SIZE /
+    // DILATION_ITERATIONS parameters. Called from both constructors.
+    void initCudaFilters();
     /*
       The old per-object identity fields (next_object_ID counter and the
       tracked_objects_centr map) were removed once track identity moved to the Selector.
       The Detector is now stateless with respect to identity and just reports raw
       detections each frame.
     */
+
+    // Shared (mapped, zero-copy) host/device buffers for the Jetson unified memory path.
+    // HostMem(SHARED) allocates one physical buffer exposed as BOTH a cv::Mat (host view)
+    // and a cv::cuda::GpuMat (device view). No memcpy happens between the two views.
+    cv::cuda::HostMem h_frame_shared;   // input frame,  shared
+    cv::cuda::HostMem h_dilated_shared; // output mask,  shared
+    bool shared_bufs_ready = false;     // lazily sized on first frame
 
 public:
 

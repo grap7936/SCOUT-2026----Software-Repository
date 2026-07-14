@@ -4,6 +4,7 @@
 #include <omp.h>
 #include <VmbCPP/VmbCPP.h> // Vimba X include
 #include "CameraWrapper.hpp"
+#include "KeyInput.hpp"
 #include "Graph.hpp"
 #include "Target.hpp"
 #include "Detector.hpp"
@@ -25,6 +26,10 @@ int main() {
     cv::Mat frame;
 
     int timeout = 2000; // ms
+
+    // Non-blocking terminal input: press 'q' (or ESC) to quit.
+    KeyInput keys;
+    std::cout << "IdleCam running. Press 'q' to quit." << std::endl;
     
     // fetch frame from the camera stream to check (2000ms timeout)
     frame = cam.getFrame(timeout);
@@ -49,7 +54,10 @@ int main() {
 
         // (optional) show the frame
         cv::imshow("Frame", frame);
-        if (cv::waitKey(1) == 27) { // exit if ESC pressed
+        cv::waitKey(1); // let the GUI window repaint; exit is handled below
+
+        // Exit on 'q' typed into the launching terminal
+        if (keys.quitPressed()) {
             break;
         }
     }
