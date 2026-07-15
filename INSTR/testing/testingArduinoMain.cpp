@@ -17,6 +17,8 @@ Last Updated: 7/8/2026
 
 #include "ArduinoSend.hpp"
 #include <iostream>
+#include <fstream>
+#include <vector>
 #include <unistd.h>
 
 /////////////////////////////////////////////////////////////
@@ -137,8 +139,19 @@ int main() {
         // sendTargetCoordinates() intentionally SKIPS its own read when y == -2, leaving the Arduino's bare-float shaft angle in the serial buffer for
         // readMotorPosition() to consume here. If this stays commented out, that float lingers in the buffer and corrupts the next packet's response read.
         std::cout << "[TELEMETRY CHECK] Querying current shaft angle..." << std::endl;
-        double shaft_angle = sender.readMotorPosition();
-        std::cout << "[TELEMETRY] Reported shaft angle (rad): " << shaft_angle << std::endl;
+        std::ofstream logFile("motor_position.log", std::ios::app);
+        std::vector<double> frame_plus_motor_data = sender.readMotorPosition(logFile);
+
+        // extracting the individual variables from the vector 
+        if (frame_plus_motor_data.size() == 2 && frame_plus_motor_data[0] != -1.0) { // conditions to ensure that data being sent happens while in tracking mode and not during the -1 test case
+            int frame_num = static_cast<int>(frame_plus_motor_data[0]); // Extracted Frame Number
+            double shaft_angle = frame_plus_motor_data[1];             // Extracted Shaft Angle
+            
+            std::cout << "[TELEMETRY] Received Frame Number: " << frame_num << std::endl;
+            std::cout << "[TELEMETRY] Reported shaft angle in (rad): " << shaft_angle << std::endl;
+        } else {
+            std::cout << "[TELEMETRY] Error: Telemetry returned empty or failed to parse." << std::endl;
+        }
         
         std::cout << "Testing will continue unless user leaves TESTING MODE (i.e Y = -5). ONLY LEAVE TESTING MODE WHEN YOU ARE SURE TESTING IS FINISHED. Testing mode can be re-entered with Y = -6\n\n";
 
