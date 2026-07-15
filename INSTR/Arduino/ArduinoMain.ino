@@ -24,9 +24,8 @@ each function which helps to execute the required functionality, such as moving 
 
 Author: Graeme Appel
 
-Last Updated: 7/14/2026
+Last Updated: 7/15/2026
 */
-
 
 /////////////////////////////////////////////////////////////
 
@@ -52,11 +51,12 @@ float motor_target_velocity = 0.0; // Continuous absolute velocity tracking vari
 // Initialize necessary motor setup details: (subject to change later once we know the specific motor parameters)
 const int PPR = 2048; // Motor Resolution/PPR (Pulses Per Revolution) -- set as an arbitrary 2048 number for now before knowing accurate motor specs
 const int Pole_Pairs = 11; // number of Pole Pairs the given motor has -- set arbitrarily for now
-// Necessary camear parameters 
+// Necessary camera parameters 
 float const CAM_FRAME_WIDTH_PX = 2464.0f; // camera frame width in pixels
 // float const CAM_FRAME_HEIGHT_PX = 2064.0f; // uncomment only if needed
 // float const CAM_FRAME_HEIGHT_RAD = 6.09  * (PI/180.0f);// camera frame height in radians -- FOV converted from degree input
 float const CAM_FRAME_WIDTH_RAD =  8.21 * (PI/180.0f); // camera frame width in radians -- FOV converted from degree input
+
 // BLDC motor instance matching the number of pole pairs the motor has as an input 
 BLDCMotor motor = BLDCMotor(Pole_Pairs);
 
@@ -120,7 +120,7 @@ void setup() {
   // RISING assumes the camera pulses the line high once per frame -- change the edge (RISING/FALLING/
   // CHANGE) to match your camera's actual signal. See the CAM_FRAME_PIN note above re: pin choice.
   // Also: Replaced standard attachInterrupt logic.
-  // Standard digitalPinToInterrupt() only works on pins 2 and 3[cite: 1]. 
+  // Standard digitalPinToInterrupt() only works on pins 2 and 3. 
   // We swap it out for the library's pin-change macros to enable interrupts on Pin 4.
   pinMode(CAM_FRAME_PIN, INPUT);
   attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(CAM_FRAME_PIN), CamInterrupt, RISING);
@@ -135,8 +135,6 @@ void setup() {
   motor.init(); // Allocates system memory for the tracking variables and loads your motor parameters (like the 11 pole pairs) into the controller.
   motor.initFOC(); // Triggers the physical startup calibration sequence.
                    // Note: The motor will make a short, audible humming sound or slightly nudge into position.
-
-
 
 
 }
@@ -179,46 +177,54 @@ void loop() {
         else if (testModeActive && Data_Package.y >= 0) {
             Serial.println(F("[BLOCKED] Tracking packet ignored. System is still in TEST_MODE."));
         }
-        
+
         else {
-            // Handle explicit command routines mapped via negative indicator states
-            switch (Data_Package.y) {
-                case -1: // Spin at constant omega sentry sweep
-                    motor.controller = MotionControlType::velocity;
-                    motor_target_velocity = Sentry_RPM * (2.0 * PI / 60.0);
-                    break;
-
-                case -2: // ArduinoReceive.test() - one full revolution & bare-float telemetry
-                    ArduinoReceive.motor_test();
-                    sentMotorTelemetry = true;   // suppress the write() below for this case
-                    break;
-
-                case -3: // ArduinoReceive.ping() - send raw text validation verification 
-                    ArduinoReceive.ping_bilateral_comms(Data_Package.x);
-                    break;
-
-                case -4: // Reserved for alternative test branches (Mansi's PID code)
-                    break;
-
-                case -5: // Disable testing bounds pipeline -> engage live target tracking
-                    testModeActive = false;
-                    motor.controller = MotionControlType::angle;
-                    motor_target_angle = 0.0;
-                    Serial.println(F("SYSTEM STATE UPDATE: Switching to TRACKING_MODE."));
-                    break;
-
-                case -6: // Re-engage test modes and lock execution steps
-                    testModeActive = true;
-                    motor_target_velocity = 0.0;
-                    motor_target_angle = 0.0;
-                    Serial.println(F("SYSTEM STATE UPDATE: Returning to TEST_MODE."));
-                    break;
-
-                default: // outputs feedback for unrecognized user inputs
-                    Serial.println(F("Unrecognized Test Command Input received."));
-                    break;
+            // SAFETY FILTER: If we are in tracking mode, ignore any testing commands (y < 0) 
+            // EXCEPT for state changes like -5 (enable tracking) or -6 (return to test)
+            if (!testModeActive && Data_Package.y != -5 && Data_Package.y != -6) {
+                Serial.println(F("[BLOCKED] Testing command rejected. System is in TRACKING_MODE."));
             }
-        }
+
+            else { 
+                // Handle explicit command routines mapped via negative indicator states
+                switch (Data_Package.y) {
+                    case -1: // Spin at constant omega sentry sweep
+                        motor.controller = MotionControlType::velocity;
+                        motor_target_velocity = Sentry_RPM * (2.0 * PI / 60.0);
+                        break;
+
+                    case -2: // ArduinoReceive.test() - one full revolution & bare-float telemetry
+                        ArduinoReceive.motor_test();
+                        sentMotorTelemetry = true;   // suppress the write() below for this case
+                        break;
+
+                    case -3: // ArduinoReceive.ping() - send raw text validation verification 
+                        ArduinoReceive.ping_bilateral_comms(Data_Package.x);
+                        break;
+
+                    case -4: // Reserved for alternative test branches (Mansi's PID code)
+                        break;
+
+                    case -5: // Disable testing bounds pipeline -> engage live target tracking
+                        testModeActive = false;
+                        motor.controller = MotionControlType::angle;
+                        motor_target_angle = 0.0;
+                        Serial.println(F("SYSTEM STATE UPDATE: Switching to TRACKING_MODE."));
+                        break;
+
+                    case -6: // Re-engage test modes and lock execution steps
+                        testModeActive = true;
+                        motor_target_velocity = 0.0;
+                        motor_target_angle = 0.0;
+                        Serial.println(F("SYSTEM STATE UPDATE: Returning to TEST_MODE."));
+                        break;
+
+                    default: // outputs feedback for unrecognized user inputs
+                        Serial.println(F("Unrecognized Test Command Input received."));
+                        break;
+                }
+            } 
+        } 
     }
 
     // Pass target parameters to physical driver constraints
@@ -234,10 +240,13 @@ void loop() {
 
     // I.e data packages of code are sent provided the -2 test in testing mode has been done first.
 
-    if (Data_Package.hasNewData && !sentMotorTelemetry) {
+    // ENFORCE WRITE() ONLY DURING ACTIVE TRACKING
+    // Only send the live camera frame and motor telemetry (write) if:
+    // 1. We have new incoming data
+    // 2. We did NOT just send test-telemetry (via case -2)
+    // 3. Tracking mode is active (!testModeActive)
+    // 4. It was actually a tracking coordinate packet (y >= 0)
+    if (Data_Package.hasNewData && !sentMotorTelemetry && !testModeActive && Data_Package.y >= 0) {
         ArduinoReceive.write(FRAME_NUM, CURRENT_MOTOR_POS);
     }
 }
-
-
-
