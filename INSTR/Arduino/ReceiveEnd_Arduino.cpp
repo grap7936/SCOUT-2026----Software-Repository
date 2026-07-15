@@ -4,7 +4,7 @@
 
 /*
 Code Summary:  This code defines all of the separate user defined functions necessary for initializing connection between the Jetson and Arduino; receiving and parsing data sent
- from the Jetson to the Arduino; testing various system components; and writing pertinent target data back to the Jetson.
+from the Jetson to the Arduino; testing various system components; and writing pertinent target data back to the Jetson.
 
 Author: Graeme Appel
 
@@ -26,6 +26,7 @@ Last Updated: 7/14/2026
 extern BLDCMotor motor;
 extern float motor_target_angle;
 extern float motor_target_velocity;
+extern volatile int FRAME_NUM;
 
 // Create Instance of the ArduinoReceive Class to handle all incomoing data
 ArduinoReceiveClass ArduinoReceive;
@@ -136,7 +137,11 @@ void ArduinoReceiveClass::motor_test() {
     motor_target_angle = motor.shaft_angle + (2 * PI); // move forward the current motor angle one rotation (360 degrees forward)
     
     delay(10); // Let the motor settle slightly
-    Serial.println(motor.shaft_angle, 4); // Report position
+
+    Serial.print(FRAME_NUM); // Accesses the current frame number
+    Serial.print(",");
+    Serial.println(motor.shaft_angle, 4); // Uses the live shaft angle, NOT the latched interrupt position NOTE: this line is different from that in the write function because
+                                          // motor.shaft_angle is the measurement of wher ethe motor is immediately after a testing movement whereas CURRENT_MOTOR_POS logs the position immediately after the camera shutter clicks.
 }
 
 /////////////////////////////////////////////////////////////
@@ -183,9 +188,8 @@ None
 void ArduinoReceiveClass::write(uint16_t FRAME_NUM, float CURRENT_MOTOR_POS) {
 
     // Structured confirmation telemetry pipeline back down to the Jetson
-    Serial.print(F("Frame ["));
     Serial.print(FRAME_NUM);
-    Serial.print(F("] Pos: "));
+    Serial.print(",");
     Serial.println(CURRENT_MOTOR_POS, 4);
 
 
@@ -212,16 +216,18 @@ Outputs:
 
 /////////////////////////////////////////////////////////////
 
-float ArduinoReceiveClass::getRadDiff((float Frame_width_px, float Frame_width_rads, int16_t target_x)) {
+float ArduinoReceiveClass::getRadDiff(float Frame_width_px, float Frame_width_rads, int16_t target_x) {
 
     float rads_per_pixel = (Frame_width_rads / Frame_width_px); // gets radians per pixel conversion
     float center_coord_pixels = (Frame_width_px / 2.0f); // gets center of the frame in pixels along the x-dimension -- uses floating point division for better efficiency and no risk in variable type mismatch
 
     float pos_diff_pixels = target_x - center_coord_pixels ; // gets the difference in pixels (positive is to the right of the frame center and negative is to the left of the frame center) between an object and the center of the frame along the x-axis
-    float rad_diff = pos_diff_pixels * rads_per_pixels; // convert to radians
+    float rad_diff = pos_diff_pixels * rads_per_pixel; // convert to radians
 
     return rad_diff;
 
-}
+};
+
+
 
 
