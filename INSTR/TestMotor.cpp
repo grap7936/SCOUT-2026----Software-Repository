@@ -4,7 +4,7 @@ Code Summary:
 
 Author: Zachary Dyre, Graeme Appel (only added read motor portion)
 
-Last Updated: 7/9/2026
+Last Updated: 7/15/2026
 
 
 */
@@ -13,7 +13,10 @@ Last Updated: 7/9/2026
 
 #include <iostream>
 #include "ArduinoSend.hpp"
+#include <vector>
 #include <unistd.h>  // For sleep() and usleep()
+
+/////////////////////////////////////////////////////////////
 
 void setupArduino(ArduinoSend& sender);
 
@@ -31,9 +34,11 @@ int main() {
 
     sender.sendTargetCoordinates(-2, -2, -2);
 
-    double motorPosition = sender.readMotorPosition(); // get double variable for motor position
+    std::ofstream logFile("motor_position.log", std::ios::app);
+    std::vector<double> frame_plus_motor_data = sender.readMotorPosition(logFile);
 
-    std::cout << " Motor Position Detected: " << motorPosition << " [radians]\n";
+    std::cout << " Frame number detected: " << frame_plus_motor_data[0] << std::endl;
+    std::cout << " Motor Position Detected: " << frame_plus_motor_data[1] << " [radians]\n";
 
 }   
 
