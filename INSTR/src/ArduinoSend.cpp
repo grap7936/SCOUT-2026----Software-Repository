@@ -14,7 +14,7 @@ Code Summary:  This code details the Jetson side of the Jetson to Arduino serial
 
 Author: Graeme Appel
 
-Last Updated: 7/14/2026
+Last Updated: 7/15/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -24,6 +24,7 @@ Last Updated: 7/14/2026
 #include <cstring> // allows for processing of strings and character blocks
 #include <fstream> // Included to write outputs to a .txt file
 #include <cstdio> // Included <cstdio> to use sscanf for splitting the string into separate variables
+#include <vector> // Included to use std::vector for returning multiple values from readMotorPosition
 
 // Included libraries for working in Linux code with the Jetson
 #ifndef _WIN32
@@ -64,7 +65,7 @@ Outputs:
 
 bool ArduinoSend::initializePort() {
     // Open read/write, block execution on read, prevent it from becoming a controlling terminal
-    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY);
+    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (serial_fd == -1) {
         std::cerr << "[ERROR] ArduinoSend: Failed to open port " << port_name << std::endl;
         return false;
@@ -93,7 +94,7 @@ bool ArduinoSend::initializePort() {
     options.c_oflag &= ~OPOST;
 
     options.c_cc[VMIN]  = 0;  // Non-blocking read: return immediately if no data
-    options.c_cc[VTIME] = 1;  // Wait up to 1 decisecond (100ms) for incoming bytes
+    options.c_cc[VTIME] = 0;  // Wait up to 1 decisecond (100ms) for incoming bytes
 
     // Apply configuration changes immediately
     tcsetattr(serial_fd, TCSANOW, &options);
@@ -125,7 +126,7 @@ Outputs:
 
 /////////////////////////////////////////////////////////////
 
-bool ArduinoSend::sendTargetCoordinates(uint16_t id, int16_t x, int16_t y, std::ofstream& logFile) {
+bool ArduinoSend::sendTargetCoordinates(uint16_t id, int16_t x, int16_t y) {
     if (serial_fd == -1) return false; // exits the sending coordinates function early if no USB connection descriptor number is found preventing program from crashing
 
     //Intercept the mode-switch commands to update the Jetson's state
@@ -178,48 +179,48 @@ bool ArduinoSend::sendTargetCoordinates(uint16_t id, int16_t x, int16_t y, std::
     // waiting for readMotorPosition() to consume it!
     return true; 
     }
-    
+
     // Dynamic if-statement to optimize communication frequency
     // In order to view functionality of the program in VNC viewer, we must read and output to the VNC viewer console what would normally be output by the serial window on the Arduino side so that is what is going to be implemented next here
     // There needs to be a longer time delay for while in testing mode (the else statement) and then performance is optimized with a shorter time delay when analyzing things in tracking mode.
-    if (tracking_mode_active) {
-        usleep(15000); // 15ms high-speed delay (approx. 66 Hz pipeline capability)
-    } else {
-        usleep(60000); // 60ms safe delay to clear verbose diagnostic text
-    }
+    // if (tracking_mode_active) {
+    //     usleep(15000); // 15ms high-speed delay (approx. 66 Hz pipeline capability)
+    // } else {
+    //     usleep(60000); // 60ms safe delay to clear verbose diagnostic text
+    // }
 
 
-    // Create an array of 256 characters (bytes) full of useless info that will be overwritten
-    char read_buffer[256];
-    memset(read_buffer, 0, sizeof(read_buffer)); // makes all 256 slots in char array become \0 which indicates the end of a string/text when using std::cout -- this makes sure printing and organizing works well
+    // // Create an array of 256 characters (bytes) full of useless info that will be overwritten
+    // char read_buffer[256];
+    // memset(read_buffer, 0, sizeof(read_buffer)); // makes all 256 slots in char array become \0 which indicates the end of a string/text when using std::cout -- this makes sure printing and organizing works well
 
-    int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1); // input 1: File descriptor showing where USB port connection is
-                                                                           // input 2: Linux puts the characters sent back by the Arduino into the read_buffer 256 byte array called read_buffer
-                                                                           // input 3: Max number of bytes that can have data stored in it. In this case it is 255 because this matches the number of bytes for our 8 bit unsigned
-                                                                           //  integers and also we need the last byte to be the \0 to tell Linux it is done receiving data for that packet.
+    // int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1); // input 1: File descriptor showing where USB port connection is
+    //                                                                        // input 2: Linux puts the characters sent back by the Arduino into the read_buffer 256 byte array called read_buffer
+    //                                                                        // input 3: Max number of bytes that can have data stored in it. In this case it is 255 because this matches the number of bytes for our 8 bit unsigned
+    //                                                                        //  integers and also we need the last byte to be the \0 to tell Linux it is done receiving data for that packet.
     
-    // bytes_read > 0 is true if ANY bytes/data have been sent to the Arduino so this basically says execute as data is being sent to the Arduino                                                                        
-    if (bytes_read > 0) {
+    // // bytes_read > 0 is true if ANY bytes/data have been sent to the Arduino so this basically says execute as data is being sent to the Arduino                                                                        
+    // if (bytes_read > 0) {
 
-        // Output the Arduino's internal processing statements directly to your Jetson console
-        // std::cout << "[ARDUINO RESPONSE]:\n" << read_buffer << std::endl;
+    //     // Output the Arduino's internal processing statements directly to your Jetson console
+    //     // std::cout << "[ARDUINO RESPONSE]:\n" << read_buffer << std::endl;
 
-        // Parsing block to extract the separate variables from the raw text line
-        int parsedFrame = 0;
-        double parsedPos = 0.0;
+    //     // Parsing block to extract the separate variables from the raw text line
+    //     int parsedFrame = 0;
+    //     double parsedPos = 0.0;
 
-        // sscanf searches for fields matching the "SUCCESS: Frame [X] Pos: Y" structure
-        if (sscanf(read_buffer, "Frame [%d] Pos: %lf", &parsedFrame, &parsedPos) == 2) {
-            // Routes the separate variables directly to the unified logging function
-            logTelemetry(logFile, parsedFrame, parsedPos, false);
+    //     // sscanf searches for fields matching the "SUCCESS: Frame [X] Pos: Y" structure
+    //     if (sscanf(read_buffer, "Frame [%d] Pos: %lf", &parsedFrame, &parsedPos) == 2) {
+    //         // Routes the separate variables directly to the unified logging function
+    //         logTelemetry(logFile, parsedFrame, parsedPos, false);
 
-        } else {
-            std::cerr << "[WARNING] Could not parse telemetry variables from line: " << read_buffer << std::endl;
-        }
+    //     } else {
+    //         std::cerr << "[WARNING] Could not parse telemetry variables from line: " << read_buffer << std::endl;
+    //     }
 
-    } else {
-        std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
-    }
+    // } else {
+    //     std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
+    // }
 
     return true; // returns a bool variable value to the system to ensure that the size of the written data is equal to the size of the stored process data. If they are not the same this means that there
                                               // is likely some sort of wire disconnected which stops running the system allowing it to be fixed/debugged
@@ -237,20 +238,29 @@ Inputs:
 1.) std::ofstream& logFile == This is a reference to an output file stream object that is used to log telemetry data to a text file. It allows the function to write information about the sent coordinates and the current state of the system (tracking or testing mode) to a log text file.
 
 Outputs:
-1.) double motorPos == The current motor position detected by the Arduino on the ArduinoReceive side of the code. This is a measurement in radians.
-
+1.) std::vector<double> == A vector containing the current motor position detected by the Arduino on the ArduinoReceive side of the code. This is a measurement in radians.
 */
 
 
 /////////////////////////////////////////////////////////////
 
-double ArduinoSend::readMotorPosition(std::ofstream& logFile) {
+std::vector<double> ArduinoSend::readMotorPosition(std::ofstream& logFile) {
 
-    if (serial_fd == -1) return -1.0; // exits the sending coordinates function early if no USB connection descriptor number is found preventing program from crashing
+    if (serial_fd == -1) return {-1.0, -1.0}; // exits the sending coordinates function early if no USB connection descriptor number is found preventing program from crashing
 
     // Give the Arduino a tiny window (e.g., 20-30ms) to receive the packet,
     // process the motor target change, and reply via Serial.println()
-    usleep(25000);
+    // usleep(25000);
+
+    if (!tracking_mode_active) {
+
+        // While in testing mode: Flush any stale serial data sitting in the queue
+        flushCache(); 
+        // Allow a 25ms delay for physical movements/replies to process
+        usleep(25000); 
+    }
+
+    // While in tracking mode, no need for flushCache() and usleep() to optimize processing speed
 
     // Create an array of 256 characters (bytes) full of useless info that will be overwritten
     char read_buffer[256];
@@ -264,19 +274,37 @@ double ArduinoSend::readMotorPosition(std::ofstream& logFile) {
     if (bytes_read > 0) {
        // std::cout << "[ARDUINO RESPONSE]:\n" << read_buffer << std::endl;
 
-        // Convert the raw bare float response string to a double variable
-        double motorPos = std::stod(read_buffer);
+        // // Convert the raw bare float response string to a double variable
+        // double motorPos = std::stod(read_buffer);
 
-        // Routes the motor test position variable to the unified logging function (passing frame as 0)
-        logTelemetry(logFile, 0, motorPos, true);
+        int parsedFrame = 0;
+        double motorPos = 0.0;
 
-        return motorPos; // Convert string to double and return -- i.e takes in serial print input from the Arduino end and converts it to doubles to be stored later once receiving data back
+    // Extract both variables from the "Frame: Pos: " string layout
+    if (sscanf(read_buffer, "%d, %lf", &parsedFrame, &motorPos) == 2) {
+
+        // If tracking is active, isMotorTest is FALSE (logs as CURRENT_MOTOR_POS)
+        // If tracking is inactive, isMotorTest is TRUE (logs as motor.shaft_angle)
+        bool isMotorTest = !tracking_mode_active;
+
+        // Pass the parsed frame count directly from the Arduino to your log file
+        logTelemetry(logFile, parsedFrame, motorPos, isMotorTest);
+
+        // Return vector containing: {frame_number, motor_position}
+        return { static_cast<double>(parsedFrame), motorPos }; 
 
     } else {
-        std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
-        return -1.0; // Indicate error
+        std::cerr << "[WARNING] Could not parse frame and motor position from line: " << read_buffer << std::endl;
+        return {-1.0, -1.0}; // Indicate parsing error
     }
 }
+
+else {
+        std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
+        return {-1.0, -1.0}; 
+    }
+
+} 
 
 /////////////////////////////////////////////////////////////
 
@@ -330,11 +358,8 @@ void ArduinoSend::closePort() {
 void ArduinoSend::flushCache() { // flushes the cache 
     if (serial_fd == -1) return;
     
-    char flush_dump[256];
-    // Read continuously until the incoming buffer is completely empty
-    while (read(serial_fd, flush_dump, sizeof(flush_dump)) > 0) {
-        // Just draining the buffer cache
-    }
+    tcflush(serial_fd, TCIOFLUSH);
+    
 }
 
 
