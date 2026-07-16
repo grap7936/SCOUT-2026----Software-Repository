@@ -24,7 +24,7 @@ each function which helps to execute the required functionality, such as moving 
 
 Author: Graeme Appel
 
-Last Updated: 7/15/2026
+Last Updated: 7/16/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -42,7 +42,7 @@ Last Updated: 7/15/2026
 // Without volatile the compiler may cache a stale copy and never see the ISR's updates.
 volatile float CURRENT_MOTOR_POS = 0.0;
 volatile int FRAME_NUM = 0; // Frame number counter starting from when the camera begins sending and processing data each time after an interrupt -- initialized to 0 for the time being, this will be changed later in the code.
-float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
+extern float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
 
 bool testModeActive = true;
 float motor_target_angle = 0.0; // Continuous absolute angle tracking variable for the testMotor function and for keeping track of angle for tracking -- in [rads]
@@ -227,7 +227,7 @@ void loop() {
     }
 
     // Pass target parameters to physical driver constraints
-    if (motor.controller == MotionControlType::velocity) {
+    if (motor.controller == MotionControlType::velocity) 
         motor.move(motor_target_velocity);
     } else {
         motor.move(motor_target_angle);
