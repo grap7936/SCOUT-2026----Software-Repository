@@ -12,6 +12,13 @@
 #include <unistd.h>  // For sleep() and usleep()
 #include <cstdlib> // For hasDisplay()
 
+#include "Timer.hpp"
+
+extern TimerStats t_filter, t_contours, t_centroids;
+extern TimerStats t_estimate, t_weights, t_connect;
+
+TimerStats t_frame, t_serial, t_detect, t_write;
+
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny);
 
 void setupArduino(ArduinoSend& sender);
@@ -104,17 +111,21 @@ int main() {
     cv::Mat frame;
     long long fid = 0;
     while (true) {
+
+        Timer _frame(t_frame);
+
         // read frame
         if (!cap.read(frame)) {
             break; // exit on failure / end of stream
         }
 
         // read motor position
-        std::vector<double> raw = sender.readMotorPosition(Motor_Data);
+        std::vector<double> raw;
+        { Timer _(t_serial); raw = sender.readMotorPosition(Motor_Data); }
         double m_pos = raw[1];
         double ard_frame_num = raw[0];
 
-        debris_id = sentry.findDebris(frame, debris_id, fid);
+        { Timer _(t_detect); debris_id = sentry.findDebris(frame, debris_id, fid); }
 
         if ( debris_id != -1 ){
             // write to file
@@ -132,9 +143,24 @@ int main() {
             writeToPID(sender, -1, -1, -1, -1, -1);
         }
 
-        writer.write(frame);
+        { Timer _(t_write); writer.write(frame); }
 
         fid++;
+
+        // inside the while loop, after fid++:
+        if (fid % 30 == 0) {
+            fprintf(stderr, "--- frame %lld ---\n", fid);
+            reportTimer("frame",     t_frame);
+            reportTimer("serial",    t_serial);
+            reportTimer("findDebris",t_detect);
+            reportTimer("  filter",  t_filter);
+            reportTimer("  contours",t_contours);
+            reportTimer("  centroid",t_centroids);
+            reportTimer("  estimate",t_estimate);
+            reportTimer("  weights", t_weights);
+            reportTimer("  connect", t_connect);
+            reportTimer("videoWrite",t_write);
+        }
 
         // (optional) show the frame
         if (GUI) {

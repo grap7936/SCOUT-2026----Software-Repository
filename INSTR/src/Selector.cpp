@@ -26,6 +26,9 @@ for debris scoring.
 
 #include <Selector.hpp>
 
+#include "Timer.hpp"
+TimerStats t_estimate, t_weights, t_connect;
+
 // Constructor with custom proximity threshold and occlusion timeout
 Selector::Selector( int thresh, int timeout, int weight_comp) {
     this->THRESHOLD = thresh;
@@ -336,13 +339,13 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
     setCurrentFrameNum(frame_num);
 
     // Phase 1: Advance historical tracking equations forward to match current time frame
-    estimateNextState();
+    { Timer _(t_estimate); estimateNextState(); }
 
     // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
-    computeWeights();
+    { Timer _(t_weights); computeWeights(); }
 
     // Phase 3: Solve the cost allocation problem and update node linking identities
-    connect();
+    { Timer _(t_connect); connect(); }
 
 }
 

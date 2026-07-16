@@ -19,6 +19,9 @@ Last Updated: 6/23/2026
 /////////////////////////////////////////////////////////////
 
 #include "Detector.hpp"
+#include "Timer.hpp"
+
+TimerStats t_filter, t_contours, t_centroids;
 
 /////////////////////////////////////////////////////////////
 
@@ -352,8 +355,8 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
         cv::cuda::cvtColor(d_in, d_mono, cv::COLOR_BGR2GRAY);
     }
 
-    d_median_filter->apply(d_mono, d_blur);
-    cv::cuda::subtract(d_blur, cv::Scalar(global_background_noise), d_cleaned);
+    //d_median_filter->apply(d_mono, d_blur); adds too much slow
+    cv::cuda::subtract(d_mono, cv::Scalar(global_background_noise), d_cleaned);
     cv::cuda::threshold(d_cleaned, d_thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
 
     // Dilate straight into the shared output buffer. No download needed --
@@ -529,12 +532,20 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
     
 
     // Call filter() function for passed in frame
-    cv::Mat frame_dilated = filter(mono_frame);
+    cv::Mat frame_dilated;
+    { Timer _(t_filter);
+    frame_dilated = filter(mono_frame);
+    }
 
     // Call contours() to get contours_list as well as each box dimensions struct for each contour (variables must be extracted from here)
-    auto [contours_list, box_dims] = contours(frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
+    std::vector<BoxDim> box_dims;
+    { Timer _(t_contours);
+      auto result = contours(frame_dilated);  // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
+      box_dims = std::move(result.second);
+    }
 
     // Loop through all box dimensions for each different contour identified to extract x and y centroid position and size for input into each target instance
+    { Timer _(t_centroids);
     int size = box_dims.size();
     targets.resize(size);
     #pragma omp parallel for
@@ -555,6 +566,7 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
         new_target->setFrameNum(current_frame_num);
 
         targets[i] = new_target; // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
+    }
     }
 
 }
