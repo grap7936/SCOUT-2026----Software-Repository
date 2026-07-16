@@ -182,7 +182,7 @@ void loop() {
             // SAFETY FILTER: If we are in tracking mode, ignore any testing commands (y < 0) 
             // EXCEPT for state changes like -5 (enable tracking) or -6 (return to test) as well as -1 (starting sentry mode)
             if (!testModeActive && Data_Package.y != -5 && Data_Package.y != -6 && Data_Package.y != -1) {
-                Serial.println(F("[BLOCKED] Testing command rejected. System is in TRACKING_MODE."));
+                Serial.println(F("[BLOCKED]")); // Blocks data packets if not in tracking mode.
             }
 
             else { 
