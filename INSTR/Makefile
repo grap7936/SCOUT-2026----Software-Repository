@@ -1,6 +1,6 @@
 # Compiler settings
 CXX = g++
-CXXFLAGS = -g -Wall -Wextra -std=c++17 -fopenmp -Iinclude -I/usr/local/include/opencv4 -I/home/scout/vimba-x/VimbaX_2026-2/api/include -I/home/scout/vimba-x/VimbaX_2026-2/api/include/VmbCPP
+CXXFLAGS = -O2 -march=native -g -Wall -Wextra -std=c++17 -fopenmp -Iinclude -I/usr/local/include/opencv4 -I/home/scout/vimba-x/VimbaX_2026-2/api/include -I/home/scout/vimba-x/VimbaX_2026-2/api/include/VmbCPP
 
 # OpenCV configuration 
 OPENCV = $(shell pkg-config --cflags --libs opencv4)
@@ -69,6 +69,7 @@ directories: # for linux
 clean:
 # for linux
 	rm -f src/*.o *.o
+	rm -rf bin
 # for windows
 #del /q /f src\*.o *.o
 

@@ -17,13 +17,15 @@ private:
 public:
     
     // Constructor with root target and target list
-    Graph( Target &root, std::vector<Target*> targets );
+    Graph( Target &root, const std::vector<Target*>& targets );
 
     // Constructor with root target
     Graph( Target &root );
 
     // Backup Constructor
     Graph();
+
+    void rebuild( Target &root, const std::vector<Target*>& next );
 
 
     int getRootID(); // new
@@ -55,9 +57,9 @@ public:
 
     void addVertex(Target*, int weight); // new
 
-    void addVerticesFromList(std::vector<Target*> next_targets);
+    void addVerticesFromList(const std::vector<Target*>& next_targets);
 
-    void addVerticesFromList(std::vector<Target*> next_targets, std::vector<int> weight); // new
+    void addVerticesFromList(const std::vector<Target*>& next_targets, const std::vector<int>& weight); // new
 
     void calcWeight(float gain1);
 

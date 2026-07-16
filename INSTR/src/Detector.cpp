@@ -360,10 +360,14 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
     // the host view is already valid once the stream syncs.
     d_dilate_filter->apply(d_thresh, d_out);
 
-    // Return the host view of the shared output. createMatHeader() is a header,
-    // so return a clone only if the caller keeps it past the next filter() call;
-    // contours() consumes it immediately, so a header is fine (see note).
-    return h_dilated_shared.createMatHeader();
+    // The shared/mapped path does NOT implicitly sync the way download() did.
+    // Force the device work to finish before the host reads the buffer.
+    cv::cuda::Stream::Null().waitForCompletion();
+
+    // Clone into a caller-owned Mat. findContours() modifies its input in place
+    // and the next frame's filter() reuses h_dilated_shared, so the caller must
+    // NOT hold a bare header into the shared buffer.
+    return h_dilated_shared.createMatHeader().clone();
 }
 
 // contours() member function
@@ -544,7 +548,7 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
 
         // int x_centr_pos = box.x + (box.w / 2); 
         // int y_centr_pos = box.y + (box.h / 2);
-        std::vector<float> centroid = computeCentroid(frame, box.x, box.y, box.w, box.h);
+        std::vector<float> centroid = computeCentroid(mono_frame, box.x, box.y, box.w, box.h);
 
         // Construct new instance of target. Unassigned values default to std::nullopt as defined in the target class (this is basically the same as assigning to NONE equivalently in Python)
         Target* new_target = new Target(centroid[0], centroid[1], box.size);

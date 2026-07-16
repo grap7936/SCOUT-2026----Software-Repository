@@ -6,6 +6,8 @@
 #include <omp.h>
 #include <algorithm>
 #include <memory>
+#include <array>
+#include <climits>
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Graph.hpp"
@@ -25,7 +27,7 @@ private:
     int relevant_target_list_offset;
     std::vector<bool> is_timed_out;
     
-    int current_frame_num;
+    long long int current_frame_num;
     std::vector<Target*> current_relevant_targets;
     float current_mean_vx, current_mean_vy;
     float current_median_vx, current_median_vy;

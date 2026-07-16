@@ -33,12 +33,12 @@ private:
     float SELECTOR_WEIGHT_COMPOSITION;
     
 
-    int current_frame_number;
+    long long int current_frame_number;
     bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
                                // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
                                // function to False for every subsequent case.
-    cv::Mat prev_frame;
-    cv::Mat next_frame;
+    // cv::Mat prev_frame;
+    // cv::Mat next_frame;
     std::vector<Target*> full_target_list;
     std::vector<Target*> prev_targets;
     std::vector<Target*> next_targets;
@@ -60,9 +60,9 @@ public:
     void setAllParams( int thresh, int decay, float noise_floor, float score_gain, int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size, int close_thresh, int frame_timeout, float weight_comp );
 
 
-    void init( cv::Mat );
+    void init( cv::Mat&, int);
 
-    void pageFrame( cv::Mat );
+    void pageFrame( cv::Mat& );
 
     // getters for primary lists
     std::vector<Target*>* getFullListPtr();
@@ -72,13 +72,13 @@ public:
     std::vector<Target*>* getNextTargetPtr();
 
     // setters and getters for frames, selector, and detecctor
-    void setNextFrame( cv::Mat );
+    // void setNextFrame( cv::Mat );
 
-    cv::Mat getNextFrame();
+    // cv::Mat getNextFrame();
 
-    void setPrevFrame( cv::Mat );
+    // void setPrevFrame( cv::Mat );
 
-    cv::Mat getPrevFrame();
+    // cv::Mat getPrevFrame();
 
     Detector* getDetectorPtr();
 
@@ -95,7 +95,7 @@ public:
     void clearNextTargets();
 
     // primary function
-    int findDebris( cv::Mat, int);
+    int findDebris( cv::Mat&, int, long long int);
 
     void updateDebrisLikelihood();
 

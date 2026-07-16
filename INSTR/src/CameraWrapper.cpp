@@ -39,26 +39,32 @@ void FrameObserver::FrameReceived(const FramePtr pFrame) {
             std::cerr << "Warn: unsupported pixel format in observer\n";
         }
 
+        VmbUint64_t frameID = 0;
+        pFrame->GetFrameID(frameID);
+        // ... pixel conversion ...
         if (!converted.empty()) {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_latest = converted;   // cheap: shared refcount, no deep copy
-            m_hasNew = true;
+            m_latest    = converted;
+            m_latest_id = frameID;
+            m_hasNew    = true;
             m_cv.notify_one();
         }
     }
 
+    
     // CRITICAL: hand the buffer back to the capture engine so streaming
     // continues. Without this the engine runs out of buffers and stalls.
     m_pCamera->QueueFrame(pFrame);
 }
 
-cv::Mat FrameObserver::waitForFrame(int timeout_ms) {
+cv::Mat FrameObserver::waitForFrame(int timeout_ms, VmbUint64_t& out_id) {
     std::unique_lock<std::mutex> lock(m_mutex);
     if (!m_cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
                        [this] { return m_hasNew; })) {
-        return cv::Mat(); // timeout
+        return cv::Mat();
     }
     m_hasNew = false;
+    out_id = m_latest_id;
     return m_latest;
 }
 
@@ -163,6 +169,18 @@ bool CameraWrapper::configureCamera() {
                   << "x" << HEIGHT << ")\n";
         return false;
     }
+
+    // setup camera pin to activate on frame exposure
+    if (CAMERA->GetFeatureByName("LineSelector", feat) == VmbErrorSuccess) {
+        feat->SetValue("Line0");
+    }
+    if (CAMERA->GetFeatureByName("LineMode", feat) == VmbErrorSuccess) {
+        feat->SetValue("Output");
+    }
+    if (CAMERA->GetFeatureByName("LineSource", feat) == VmbErrorSuccess) {
+        feat->SetValue("ExposureActive");
+    }
+
     return true;
 }
 
@@ -196,18 +214,29 @@ void CameraWrapper::restart() {
     if (CAMERA) {
         if (configureCamera() && startStream()) {
             IS_RUNNING = true;
+            HAVE_FIRST_ID = false;
         }
     }
+    
 }
 
 cv::Mat CameraWrapper::getFrame(int timeout) {
     if (!IS_RUNNING || !OBS_RAW) { return cv::Mat(); }
 
-    cv::Mat frame = OBS_RAW->waitForFrame(timeout);
+    VmbUint64_t id = 0;
+    cv::Mat frame = OBS_RAW->waitForFrame(timeout, id);
     if (frame.empty()) {
         std::cerr << "Warning: no frame within " << timeout << " ms\n";
         return cv::Mat();
     }
+
+    if (!HAVE_FIRST_ID) { FIRST_FRAME_ID = id; HAVE_FIRST_ID = true; }
+
+    if (HAVE_FIRST_ID && id != LAST_FRAME_ID + 1) {
+        std::cerr << "Dropped " << (id - LAST_FRAME_ID - 1) << " frame(s)\n";
+    }
+
+    LAST_FRAME_ID = id;
 
     HEIGHT = frame.rows;
     WIDTH  = frame.cols;

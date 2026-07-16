@@ -80,7 +80,7 @@ private:
 
     int end_calibration_period;    // frame index at which background calibration stops
     double global_background_noise; // current estimated background brightness to subtract
-    int current_frame_num;          // frame index most recently passed to scan()
+    long long int current_frame_num;          // frame index most recently passed to scan()
 
     /*
       GPU-side preprocessing state (Jetson).

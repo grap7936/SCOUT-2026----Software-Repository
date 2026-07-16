@@ -65,7 +65,7 @@ Outputs:
 
 bool ArduinoSend::initializePort() {
     // Open read/write, block execution on read, prevent it from becoming a controlling terminal
-    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY );
     if (serial_fd == -1) {
         std::cerr << "[ERROR] ArduinoSend: Failed to open port " << port_name << std::endl;
         return false;
@@ -94,7 +94,7 @@ bool ArduinoSend::initializePort() {
     options.c_oflag &= ~OPOST;
 
     options.c_cc[VMIN]  = 0;  // Non-blocking read: return immediately if no data
-    options.c_cc[VTIME] = 0;  // Wait up to 1 decisecond (100ms) for incoming bytes
+    options.c_cc[VTIME] = 1;  // Wait up to 1 decisecond (100ms) for incoming bytes
 
     // Apply configuration changes immediately
     tcsetattr(serial_fd, TCSANOW, &options);
@@ -266,43 +266,24 @@ std::vector<double> ArduinoSend::readMotorPosition(std::ofstream& logFile) {
     char read_buffer[256];
     memset(read_buffer, 0, sizeof(read_buffer)); // makes all 256 slots in char array become \0 which indicates the end of a string/text when using std::cout -- this makes sure printing and organizing works well
 
-    int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1); // input 1: File descriptor showing where USB port connection is
+    int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer)); // input 1: File descriptor showing where USB port connection is
                                                                             // input 2: Linux puts the characters sent back by the Arduino into the read_buffer 256 byte array called read_buffer
                                                                             // input 3: Max number of bytes that can have data stored in it. In this case it is 255 because this matches the number of bytes for our 8 bit unsigned
                                                                             // integers and also we need the last byte to be the \0 to tell Linux it is done receiving data for that packet.
+    if (bytes_read > 0) rx_accum.append(read_buffer, bytes_read);
 
-    if (bytes_read > 0) {
-       // std::cout << "[ARDUINO RESPONSE]:\n" << read_buffer << std::endl;
-
-        // // Convert the raw bare float response string to a double variable
-        // double motorPos = std::stod(read_buffer);
-
-        int parsedFrame = 0;
-        double motorPos = 0.0;
-
-    // Extract both variables from the "Frame: Pos: " string layout
-    if (sscanf(read_buffer, "%d, %lf", &parsedFrame, &motorPos) == 2) {
-
-        // If tracking is active, isMotorTest is FALSE (logs as CURRENT_MOTOR_POS)
-        // If tracking is inactive, isMotorTest is TRUE (logs as motor.shaft_angle)
-        bool isMotorTest = !tracking_mode_active;
-
-        // Pass the parsed frame count directly from the Arduino to your log file
-        logTelemetry(logFile, parsedFrame, motorPos, isMotorTest);
-
-        // Return vector containing: {frame_number, motor_position}
-        return { static_cast<double>(parsedFrame), motorPos }; 
-
-    } else {
-        std::cerr << "[WARNING] Could not parse frame and motor position from line: " << read_buffer << std::endl;
-        return {-1.0, -1.0}; // Indicate parsing error
+    size_t nl;
+    std::vector<double> result = {-1.0, -1.0};
+    while ((nl = rx_accum.find('\n')) != std::string::npos) {
+        std::string line = rx_accum.substr(0, nl);
+        rx_accum.erase(0, nl + 1);
+        int parsedFrame; double motorPos;
+        if (sscanf(line.c_str(), "%d, %lf", &parsedFrame, &motorPos) == 2) {
+            logTelemetry(logFile, parsedFrame, motorPos, !tracking_mode_active);
+            result = { static_cast<double>(parsedFrame), motorPos };   // keep most recent
+        }
     }
-}
-
-else {
-        std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
-        return {-1.0, -1.0}; 
-    }
+    return result;
 
 } 
 

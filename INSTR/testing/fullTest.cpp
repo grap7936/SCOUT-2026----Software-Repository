@@ -26,19 +26,26 @@ static const bool GUI = hasDisplay();
 int main() {
 
     // Set up data output files
-    std::string VIDEO_FILENAME = "fullTestResults.mp4";
-    std::string DEBRIS_LOG_FILENAME = "debrisLog.txt";
-    std::string TARGET_LOG_FILENAME = "oldTargetsLog.txt";
+    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.mp4";
+    std::string MOTOR_LOG_FILENAME = "/home/scout/Desktop/INSTR/motorLog.txt";
+    std::string DEBRIS_LOG_FILENAME = "/home/scout/Desktop/INSTR/debrisLog.txt";
+    std::string TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
 
     std::ofstream All_Target_Data;
     All_Target_Data.open(TARGET_LOG_FILENAME); // opens/creates necessary text file for inputting data into
     All_Target_Data << "id, x,y, kx,ky, vx,vy, score\n";
     All_Target_Data.close();
     
+    
     std::ofstream Debris_Data;
     Debris_Data.open(DEBRIS_LOG_FILENAME); // opens/creates necessary text file for inputting data into
-    Debris_Data << "motor_pos, id, x,y, kx,ky, vx,vy, score\n";
+    Debris_Data << "frame_num, id, x,y, kx,ky, vx,vy, score\n";
     Debris_Data.close();
+
+    std::ofstream Motor_Data;
+    Motor_Data.open(DEBRIS_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    Motor_Data << "frame_num, motor_pos\n";
+    Motor_Data.close();
 
 
     // Set up arduino connection
@@ -59,6 +66,7 @@ int main() {
 
     // set parallelization thread count
     omp_set_num_threads(4);
+    cv::setNumThreads(1);
 
     // Retrieve camera frame dimensions and frame rate
     int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
@@ -86,9 +94,15 @@ int main() {
     // Non-blocking terminal input: press 'q' (or ESC) to quit.
     KeyInput keys;
     std::cout << "fullTest running. Press 'q' to quit." << std::endl;
+    
+    // open file write streams
+    Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
+    Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
+    All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app);
 
     int debris_id = -1;
     cv::Mat frame;
+    long long fid = 0;
     while (true) {
         // read frame
         if (!cap.read(frame)) {
@@ -96,26 +110,31 @@ int main() {
         }
 
         // read motor position
-        std::string m_pos = "";//replace with sender.readSerial();
+        std::vector<double> raw = sender.readMotorPosition(Motor_Data);
+        double m_pos = raw[1];
+        double ard_frame_num = raw[0];
 
-        debris_id = sentry.findDebris( frame, debris_id );
+        debris_id = sentry.findDebris(frame, debris_id, fid);
 
         if ( debris_id != -1 ){
             // write to file
-            Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
             Target* current = (*sentry.getFullListPtr())[debris_id];
             Debris_Data << m_pos << ", " << debris_id
                     << ", " << current->getX() << "," << current->getY()
                     << ", " << current->getKx() << "," << current->getKy()
                     << ", " << current->getVx() << "," << current->getVy()
-                    << ", " << current->getDebrisLikelihood() << "\n";
+                    << ", " << current->getDebrisLikelihood() << "\n" << std::flush;
 
             // write to Arduino
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
             writeToPID(sender, debris_id, debris_xy[0], debris_xy[1], debris_xy[2], debris_xy[3]);
+        } else {
+            writeToPID(sender, -1, -1, -1, -1, -1);
         }
 
         writer.write(frame);
+
+        fid++;
 
         // (optional) show the frame
         if (GUI) {
@@ -128,6 +147,15 @@ int main() {
             break;
         }
     }
+
+    // Close file write streams
+    Motor_Data.close();
+    All_Target_Data.close();
+    Debris_Data.close();
+
+    // Close openCV stuffs
+    writer.release(); // Finishes the MP4 container structure and flushes everything to disk
+    cap.release();    // Properly releases the camera/video file handle
 
     return 0;
 
@@ -168,6 +196,13 @@ void setupArduino(ArduinoSend& sender) {
     // flush system cache before running 1st instance
     sender.flushCache();
 
+    // switch arduino out of test mode
+    sender.sendTargetCoordinates(0,0,-5);
+
+    sender.flushCache();
+    sleep(1);
+
     std::cout << "[SYSTEM READY] Pipeline active. Ready for coordinate injection stream.\n" << std::endl;
 
+    
 }

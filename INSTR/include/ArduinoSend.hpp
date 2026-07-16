@@ -28,6 +28,7 @@ private:
                    // This is referenced when using write() and read() functions later in the actual code
     std::string port_name; // Allocates space for a string variable that stores the literal directory path of the hardware link on your Jetson (e.g., "/dev/ttyACM0").
     bool tracking_mode_active; // Tracks whether the ecosystem has transitioned to tracking mode
+    std::string rx_accum = "";
 
 public:
     ArduinoSend(const std::string& port = "/dev/ttyACM0"); // class constructor

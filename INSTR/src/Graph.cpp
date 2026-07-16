@@ -17,7 +17,7 @@ order the vertices cheapest-first.
 #include <Graph.hpp>
 
 // Constructor initializing the graph with a root target and its candidate vertex list
-Graph::Graph( Target &root, std::vector<Target*> targets ) {
+Graph::Graph( Target &root, const std::vector<Target*>& targets ) {
 
     this->root_id = root.getID();
     this->root_x = root.getX();
@@ -54,6 +54,21 @@ Graph::Graph() {
     this->targets = {};
     this->weights = {};
 }
+
+
+// rebuild graph without deleting & reallocating
+void Graph::rebuild( Target &root, const std::vector<Target*>& next ) {
+    root_id = root.getID();
+    root_x  = root.getX();
+    root_y  = root.getY();
+    root_nx = root.getNx();
+    root_ny = root.getNy();
+
+    targets.clear();          // retains capacity — no free, no realloc
+    weights.clear();
+    addVerticesFromList( next );
+}
+
 
 // Returns the target id of the root target
 int Graph::getRootID() {
@@ -186,9 +201,11 @@ void Graph::addVertex( Target* vertex, int weight ) {
  * returns:
  *  void - Modifies the targets vector in-place.
  */
-void Graph::addVerticesFromList( std::vector<Target*> vertices ) {
-    int size = vertices.size();
-    for (int i = 0; i < size; i++) {
+void Graph::addVerticesFromList( const std::vector<Target*>& vertices ) {
+    const size_t size = vertices.size();
+    targets.reserve(targets.size() + size);
+    weights.reserve(weights.size() + size);
+    for (size_t i = 0; i < size; i++) {
         addVertex( vertices[i] );
     }
     
@@ -203,12 +220,15 @@ void Graph::addVerticesFromList( std::vector<Target*> vertices ) {
  * returns:
  *  void - Modifies the targets vector in-place.
  */
-void Graph::addVerticesFromList( std::vector<Target*> vertices, std::vector<int> weight ) {
-    int size = vertices.size();
-    for (int i = 0; i < size; i++) {
+void Graph::addVerticesFromList( const std::vector<Target*>& vertices, const std::vector<int>& weight ) {
+    
+    const size_t size = vertices.size();
+    targets.reserve(targets.size() + size);
+    weights.reserve(weights.size() + size);
+    for (size_t i = 0; i < size; i++) {
         addVertex( vertices[i], weight[i] );
     }
-    
+   
 }
 
 /* Function calcWeight( float gain1 )

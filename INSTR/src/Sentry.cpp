@@ -26,8 +26,8 @@ Sentry::Sentry() {
     SELECTOR_FRAME_TIMEOUT = 4;
     SELECTOR_WEIGHT_COMPOSITION = 0.25; // 0.25 splits gains to [ 0.25 | 0.75 ] for [ x,y | nx,ny ]
 
-    detector = *(new Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE));
-    selector = *(new Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION));
+    detector = Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE);
+    selector = Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION);
 
 }
 
@@ -68,9 +68,9 @@ void Sentry::setAllParams( int thresh, int decay, float noise_floor, float score
 }
 
 // Initial frame setup routine utilizing the detection engine
-void Sentry::init( cv::Mat frame ) {
-    setNextFrame( frame );
-    current_frame_number = 0;
+void Sentry::init( cv::Mat& frame, int frame_num ) {
+    // setNextFrame( frame );
+    current_frame_number = frame_num;
     detector.scan( frame, next_targets, current_frame_number );
     selector.setFullTargetList(&full_target_list);
 
@@ -94,11 +94,11 @@ void Sentry::init( cv::Mat frame ) {
  * returns:
  *  void - Mutates internal frame caches, target pools, and updates historical debris counters.
  */
-void Sentry::pageFrame( cv::Mat frame ) {
+void Sentry::pageFrame( cv::Mat& frame ) {
 
     // Step 1: Promote the current tracking frame to be the new baseline history window
-    setPrevFrame( getNextFrame() ); 
-    setNextFrame( frame ); 
+    // setPrevFrame( getNextFrame() ); 
+    // setNextFrame( frame ); 
 
     // Step 2: Retain any tracks that went unmatched last round but are still within the
     // occlusion grace window (missed for SELECTOR_FRAME_TIMEOUT frames or fewer), then add last
@@ -135,11 +135,6 @@ void Sentry::pageFrame( cv::Mat frame ) {
 
 }
 
-// Sets the internal storage pointer for the newest image frame matrix
-void Sentry::setNextFrame( cv::Mat frame ) {
-    next_frame = frame;
-}
-
 // Returns a reference pointer tracking the master global target log
 std::vector<Target*>* Sentry::getFullListPtr() {
     return &full_target_list;
@@ -155,20 +150,25 @@ std::vector<Target*>* Sentry::getNextTargetPtr() {
     return &next_targets;
 }
 
-// Fetches the image matrix container tracking the current video frame
-cv::Mat Sentry::getNextFrame() {
-    return next_frame;
-}
+// // Sets the internal storage pointer for the newest image frame matrix
+// void Sentry::setNextFrame( cv::Mat frame ) {
+//     next_frame = frame;
+// }
 
-// Sets the storage matrix for the historical video reference frame
-void Sentry::setPrevFrame( cv::Mat frame ) {
-    prev_frame = frame;
-}
+// // Fetches the image matrix container tracking the current video frame
+// cv::Mat Sentry::getNextFrame() {
+//     return next_frame;
+// }
 
-// Fetches the image matrix container tracking the previous video frame
-cv::Mat Sentry::getPrevFrame() {
-    return prev_frame;
-}
+// // Sets the storage matrix for the historical video reference frame
+// void Sentry::setPrevFrame( cv::Mat frame ) {
+//     prev_frame = frame;
+// }
+
+// // Fetches the image matrix container tracking the previous video frame
+// cv::Mat Sentry::getPrevFrame() {
+//     return prev_frame;
+// }
 
 
 Detector* Sentry::getDetectorPtr() {
@@ -223,18 +223,16 @@ void Sentry::clearNextTargets() {
  * returns:
  *  int - The target identifier matching suspected anomaly parameters; returns -1 if tracking remains steady.
  */
-int Sentry::findDebris( cv::Mat frame, int debris_id ) {
-    
+int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_number ) {
     // Safety check: Boot pipeline tracking immediately if no records exist yet
     if ( full_target_list.size() == 0 ) {
-        init( frame );
+        init( frame, frame_number );
         return -1;
     }
+    auto last_frame_number = current_frame_number;
+    current_frame_number = frame_number;   
 
-    // Increment frame counter
-    current_frame_number++;
-
-    if ( current_frame_number % DETECTOR_BG_REFRESH_FREQUENCY == 0 ) {
+    if ( current_frame_number / DETECTOR_BG_REFRESH_FREQUENCY != last_frame_number / DETECTOR_BG_REFRESH_FREQUENCY ) {
         detector.startCalibration();
     }
 
@@ -464,6 +462,8 @@ void Sentry::dumpOldTargets(int cutoff_index)  {
 
 /////////////////////////////////////////////////////////////
 
+    std::cout << "dumping old targets..." << std::endl;
+
 // Loop through the vector and safely delete the actual Target objects allocated in memory
 // Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
 
@@ -480,6 +480,11 @@ void Sentry::dumpOldTargets(int cutoff_index)  {
 
     // Clear the vector full_target_list of all memory locations (pointers) now that all of the target objects have been deleted. It is now a blank vector of Target* ready for new data.
     full_target_list.erase(full_target_list.begin(), full_target_list.begin()+cutoff_index);
+
+    // Update IDs in remaining full_target_list
+    for (size_t i = 0; i < full_target_list.size(); i++) {
+        full_target_list[i]->setID(i);
+    }
 
     // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
     // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 

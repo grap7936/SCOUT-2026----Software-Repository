@@ -25,12 +25,13 @@ public:
     void FrameReceived(const FramePtr pFrame) override;
 
     // Blocks up to timeout_ms for a fresh frame. Returns empty Mat on timeout.
-    cv::Mat waitForFrame(int timeout_ms);
+    cv::Mat waitForFrame(int timeout_ms, VmbUint64_t& out_id);
 
 private:
     std::mutex m_mutex;
     std::condition_variable m_cv;
     cv::Mat m_latest;
+    VmbUint64_t m_latest_id = 0;
     bool m_hasNew = false;
 };
 
@@ -53,6 +54,10 @@ private:
 
     bool STREAMING = false;
 
+    VmbUint64_t LAST_FRAME_ID = 0;
+    VmbUint64_t FIRST_FRAME_ID = 0;
+    bool HAVE_FIRST_ID = false;
+
     // Internal helpers
     bool configureCamera();   // pixel format, gain, exposure, cache dimensions
     bool startStream();       // StartContinuousImageAcquisition
@@ -69,6 +74,11 @@ public:
     void restart();
 
     cv::Mat getFrame(int timeout);
+
+    // Frame ID of the most recent frame returned by getFrame(), zero-based
+    // from the start of this acquisition.
+    long long getFrameID() const { return (long long)(LAST_FRAME_ID - FIRST_FRAME_ID); }
+    VmbUint64_t getRawFrameID() const { return LAST_FRAME_ID; }
 
     CameraPtr getCamera();
 

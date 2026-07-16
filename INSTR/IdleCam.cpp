@@ -40,6 +40,7 @@ int main() {
         return -1;
     }
 
+    long long fid = 0;
     while (true) {
         // Synchronously fetch exactly one frame from the camera stream (2000ms timeout)
         frame = cam.getFrame(timeout);
@@ -50,7 +51,9 @@ int main() {
         }
 
         // Process frame through the debris tracking pipeline
-        debris_id = sentry.findDebris(frame, debris_id);
+        debris_id = sentry.findDebris(frame, debris_id, fid);
+
+        fid++;
 
         // (optional) show the frame
         cv::imshow("Frame", frame);

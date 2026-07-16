@@ -182,7 +182,7 @@ void loop() {
             // SAFETY FILTER: If we are in tracking mode, ignore any testing commands (y < 0) 
             // EXCEPT for state changes like -5 (enable tracking) or -6 (return to test) as well as -1 (starting sentry mode)
             if (!testModeActive && Data_Package.y != -5 && Data_Package.y != -6 && Data_Package.y != -1) {
-                Serial.println(F("[BLOCKED]")); // Blocks data packets if not in tracking mode.
+                Serial.println(F("[BLOCKED] Testing command rejected. System is in TRACKING_MODE."));
             }
 
             else { 
@@ -245,7 +245,7 @@ void loop() {
     // 2. We did NOT just send test-telemetry (via case -2)
     // 3. Tracking mode is active (!testModeActive)
     // 4. It was actually a tracking coordinate packet (y >= 0)
-    if (Data_Package.hasNewData && !sentMotorTelemetry && !testModeActive && Data_Package.y >= 0) {
+    if (Data_Package.hasNewData && !sentMotorTelemetry && !testModeActive && Data_Package.y >= -1) {
         ArduinoReceive.write(FRAME_NUM, CURRENT_MOTOR_POS);
     }
 }
