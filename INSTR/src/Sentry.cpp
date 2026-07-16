@@ -8,23 +8,26 @@ Sentry::Sentry() {
     next_targets = {};
     current_frame_number = -1;
 
-    TRACKER_DEBRIS_THRESHOLD = 12;
+    DEBRIS_LOG_FILENAME = "debrisLog.txt";
+    TARGET_LOG_FILENAME = "oldTargetsLog.txt";
+
+    TRACKER_DEBRIS_THRESHOLD = 20;
     TRACKER_DECAY = 6;
     TRACKER_SPEED_NOISE_FLOOR = 0.5f;
-    TRACKER_SCORE_GAIN = 1.0f;
+    TRACKER_SCORE_GAIN = 1.5f;
 
-    DETECTOR_BG_REFRESH_FREQUENCY = 15;
+    DETECTOR_BG_REFRESH_FREQUENCY = 30;
     DETECTOR_BLUR_KERNEL_SIZE = 5;
     DETECTOR_BG_THRESHOLD_MARGIN = 10;
     DETECTOR_DILATION_ITERATIONS = 1;
     DETECTOR_MAX_CONTOUR_SIZE = 1000;
 
-    SELECTOR_CLOSENESS_THRESHOLD = 250;
+    SELECTOR_CLOSENESS_THRESHOLD = 100;
     SELECTOR_FRAME_TIMEOUT = 4;
     SELECTOR_WEIGHT_COMPOSITION = 0.25; // 0.25 splits gains to [ 0.25 | 0.75 ] for [ x,y | nx,ny ]
 
-    detector = *(new Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE));
-    selector = *(new Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION));
+    detector = Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE);
+    selector = Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION);
 
 }
 
@@ -65,9 +68,9 @@ void Sentry::setAllParams( int thresh, int decay, float noise_floor, float score
 }
 
 // Initial frame setup routine utilizing the detection engine
-void Sentry::init( cv::Mat frame ) {
-    setNextFrame( frame );
-    current_frame_number = 0;
+void Sentry::init( cv::Mat& frame, int frame_num ) {
+    // setNextFrame( frame );
+    current_frame_number = frame_num;
     detector.scan( frame, next_targets, current_frame_number );
     selector.setFullTargetList(&full_target_list);
 
@@ -91,11 +94,11 @@ void Sentry::init( cv::Mat frame ) {
  * returns:
  *  void - Mutates internal frame caches, target pools, and updates historical debris counters.
  */
-void Sentry::pageFrame( cv::Mat frame ) {
+void Sentry::pageFrame( cv::Mat& frame ) {
 
     // Step 1: Promote the current tracking frame to be the new baseline history window
-    setPrevFrame( getNextFrame() ); 
-    setNextFrame( frame ); 
+    // setPrevFrame( getNextFrame() ); 
+    // setNextFrame( frame ); 
 
     // Step 2: Retain any tracks that went unmatched last round but are still within the
     // occlusion grace window (missed for SELECTOR_FRAME_TIMEOUT frames or fewer), then add last
@@ -132,11 +135,6 @@ void Sentry::pageFrame( cv::Mat frame ) {
 
 }
 
-// Sets the internal storage pointer for the newest image frame matrix
-void Sentry::setNextFrame( cv::Mat frame ) {
-    next_frame = frame;
-}
-
 // Returns a reference pointer tracking the master global target log
 std::vector<Target*>* Sentry::getFullListPtr() {
     return &full_target_list;
@@ -152,20 +150,25 @@ std::vector<Target*>* Sentry::getNextTargetPtr() {
     return &next_targets;
 }
 
-// Fetches the image matrix container tracking the current video frame
-cv::Mat Sentry::getNextFrame() {
-    return next_frame;
-}
+// // Sets the internal storage pointer for the newest image frame matrix
+// void Sentry::setNextFrame( cv::Mat frame ) {
+//     next_frame = frame;
+// }
 
-// Sets the storage matrix for the historical video reference frame
-void Sentry::setPrevFrame( cv::Mat frame ) {
-    prev_frame = frame;
-}
+// // Fetches the image matrix container tracking the current video frame
+// cv::Mat Sentry::getNextFrame() {
+//     return next_frame;
+// }
 
-// Fetches the image matrix container tracking the previous video frame
-cv::Mat Sentry::getPrevFrame() {
-    return prev_frame;
-}
+// // Sets the storage matrix for the historical video reference frame
+// void Sentry::setPrevFrame( cv::Mat frame ) {
+//     prev_frame = frame;
+// }
+
+// // Fetches the image matrix container tracking the previous video frame
+// cv::Mat Sentry::getPrevFrame() {
+//     return prev_frame;
+// }
 
 
 Detector* Sentry::getDetectorPtr() {
@@ -203,16 +206,12 @@ int Sentry::getNumTargets() {
 
 // Loops and de-allocates indices tracking old frame targets
 void Sentry::clearPrevTargets() {
-    while ( prev_targets.size() > 0 ) {
-        prev_targets.pop_back();
-    }
+    prev_targets.clear();
 }
 
 // Loops and de-allocates indices tracking incoming target buffers
 void Sentry::clearNextTargets() {
-    while ( next_targets.size() > 0 ) {
-        next_targets.pop_back();
-    }
+    next_targets.clear();
 }
 
 /* Function findDebris( cv::Mat frame, int debris_id )
@@ -224,32 +223,21 @@ void Sentry::clearNextTargets() {
  * returns:
  *  int - The target identifier matching suspected anomaly parameters; returns -1 if tracking remains steady.
  */
-int Sentry::findDebris( cv::Mat frame, int debris_id ) {
-    
+int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_number ) {
     // Safety check: Boot pipeline tracking immediately if no records exist yet
     if ( full_target_list.size() == 0 ) {
-        init( frame );
+        init( frame, frame_number );
         return -1;
     }
+    auto last_frame_number = current_frame_number;
+    current_frame_number = frame_number;   
 
-    // Increment frame counter
-    current_frame_number++;
-
-    if ( current_frame_number % DETECTOR_BG_REFRESH_FREQUENCY == 0 ) {
+    if ( current_frame_number / DETECTOR_BG_REFRESH_FREQUENCY != last_frame_number / DETECTOR_BG_REFRESH_FREQUENCY ) {
         detector.startCalibration();
     }
 
-    // Snapshot the swarm's current mean velocity from tracks as they stood entering this
-    // frame, so any brand-new tracks spawned while paging can be seeded with it rather
-    // than starting from zero velocity. ***!!!! MOVED TO Selector.cpp !!!!***
-    // std::vector<Target*> prior_relevant_targets = getRelevantTargets();
-    // std::vector<float> prior_median_velocity = getMedianTargetVelocity( prior_relevant_targets );
-    
     // Progress data buffers forward by one step sequence
     pageFrame( frame );
-
-    // Extract nodes that possess a verified historical context track
-    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
 
     // Re-evaluate velocity trends to highlight target kinetic deviations
     updateDebrisLikelihood();
@@ -264,13 +252,16 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     std::vector<cv::Scalar> COLORS = { cv::Scalar(0,0,255),cv::Scalar(0,127,255),cv::Scalar(0,255,255),cv::Scalar(0,255,0),cv::Scalar(255,0,0),cv::Scalar(127,0,127),cv::Scalar(191,191,255) };
     for (size_t i = 0; i < next_targets.size(); i++) {
         if ( next_targets[i]->getPrevInstancePtr() == nullptr ) {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 5, COLORS[next_targets[i]->getID() % 7], -1);
+            cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 5, COLORS[next_targets[i]->getID() % 7], -1);
         } else {
-            cv::circle(frame, cv::Point(next_targets[i]->getX(), next_targets[i]->getY()), 10, COLORS[next_targets[i]->getID() % 7], 2);
+            //cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 10, COLORS[next_targets[i]->getID() % 7], 2);
+            cv::putText(frame, std::to_string(target_debris_count[next_targets[i]->getID()]), cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), cv::FONT_HERSHEY_SIMPLEX, 0.5, COLORS[next_targets[i]->getID() % 7], 1, cv::LINE_AA);
         }
         
     }
 
+    // Extract nodes that possess a verified historical context track
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
     Target* saved_alt_target = nullptr;
     
     // Parse through tracked metrics to identity anomaly candidate conditions
@@ -282,7 +273,7 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
             if ( target->getID() == debris_id && debris_id != -1 ) {
-                cv::circle(frame, cv::Point(target->getX(), target->getY()), 17, cv::Scalar(255, 255, 255), 7);
+                cv::circle(frame, cv::Point(static_cast<int>(target->getX()), static_cast<int>(target->getY())), 17, cv::Scalar(255, 255, 255), 3);
                 return debris_id;
             } 
             // Branch B: Anomaly found but its ID conflicts with what we are currently monitoring
@@ -307,8 +298,17 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
     
     // Fallback: If primary target drops but an alternative candidate was buffered, switch tracking focus
     if ( saved_alt_target != nullptr ) {
-        cv::circle(frame, cv::Point(saved_alt_target->getX(), saved_alt_target->getY()), 17, cv::Scalar(255, 255, 255), 7);
+        cv::circle(frame, cv::Point(static_cast<int>(saved_alt_target->getX()), static_cast<int>(saved_alt_target->getY())), 17, cv::Scalar(255, 255, 255), 3);
         return saved_alt_target->getID();
+    }
+
+
+    // As the number of targets grows, the memory required to hold it grows larger. After a certain size, dump old targets
+    int cutoff = 2000;
+    if (selector.getTargetListOffset() > cutoff) {
+        writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+cutoff), TARGET_LOG_FILENAME, true);
+        dumpOldTargets(cutoff);
+        selector.setTargetListOffset(0);
     }
 
     return -1;
@@ -325,44 +325,32 @@ int Sentry::findDebris( cv::Mat frame, int debris_id ) {
  */
 void Sentry::updateDebrisLikelihood() {
 
-    // --- Tuning knobs -------------------------------------------------------
-    // SPEED_NOISE_FLOOR: how far (pixels/frame) a target must exceed the group's
-    // median speed before any score is added. This absorbs star jitter and small
-    // Kalman wobble so slow stars never creep over the threshold. Stars in this
-    // footage drift < 3 px/frame, so a floor around there isolates real outliers.
-    const float SPEED_NOISE_FLOOR = 0.5f;
-    // SCORE_GAIN: scales excess-speed (in px/frame, above the floor) into score
-    // units added per frame. With gain 1.0, an object moving 5 px/frame faster
-    // than the floor adds ~5 per frame and clears a threshold of ~12 in 3 frames.
-    const float SCORE_GAIN = 1.0f;
-    // DECAY: how much score bleeds off per frame for a target sitting below the
-    // floor, so a brief mis-track doesn't leave a star stuck with stale score.
-    const int DECAY = 6;
-    // -----------------------------------------------------------------------
-
     // Establish the reference group movement baseline as a speed magnitude.
     std::vector<float> median_velocity = selector.getMedianTargetVelocity();
 
     // Compare each target's speed against the group baseline.
     std::vector<Target*> relevant_targets = selector.getRelevantTargets();
+    #pragma omp parallel for
     for (size_t i = 0; i < relevant_targets.size(); i++) {
         Target* target = relevant_targets[i];
 
         // Target velocity difference magnitude (direction-agnostic: fast in any direction counts).
-        
-        float velocity_diff = std::sqrt( std::pow( (median_velocity[0]-target->getVx()) ,2) + std::pow( (median_velocity[1]-target->getVy()) ,2) );
+        float dvx = median_velocity[0]-target->getVx();
+        float dvy = median_velocity[1]-target->getVy();
+
+        float velocity_diff = std::sqrt( dvx*dvx + dvy*dvy );
 
         // Excess speed above the group, with the noise floor subtracted out.
-        float excess = velocity_diff - SPEED_NOISE_FLOOR;
+        float excess = velocity_diff - TRACKER_SPEED_NOISE_FLOOR;
 
         if ( excess > 0.0f ) {
             // Proportional reward: faster relative motion -> bigger score jump.
-            int gain = static_cast<int>( excess * SCORE_GAIN );
+            int gain = static_cast<int>( excess * TRACKER_SCORE_GAIN );
             //if ( gain < 1 ) { gain = 1; } // a clear outlier always earns at least 1
             target_debris_count[target->getID()] += gain;
         } else {
             // Below the floor: decay toward zero, clamped so scores never go negative.
-            target_debris_count[target->getID()] -= DECAY;
+            target_debris_count[target->getID()] -= TRACKER_DECAY;
             if ( target_debris_count[target->getID()] < 0 ) {
                 target_debris_count[target->getID()] = 0;
             }
@@ -372,7 +360,7 @@ void Sentry::updateDebrisLikelihood() {
     }
 }
 
-void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
+void Sentry::writeTargetsToFile(std::vector<Target*> target_list, std::string filename, bool print_all_instances) {
 
 /////////////////////////////////////////////////////////////
 
@@ -395,54 +383,64 @@ void Sentry::writeTargetsToFile(std::vector<Target*> full_target_list) {
 
 /////////////////////////////////////////////////////////////
 
-// Define output stream -- preallocate
-std::ofstream Saved_Target_Data; 
+    // Define output stream -- preallocate
+    std::ofstream Saved_Target_Data; 
 
-// If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
-if (is_first_save == true)
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt"); // opens/creates necessary text file for inputting data into
-    is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
-    }
-
-else 
-    {
-    Saved_Target_Data.open("Saved_Target_Data.txt", std::ios::app); // append data to the text file
-    }
-
-
-    // Test if stream operation failed
-    if (Saved_Target_Data.fail()) 
+    // If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
+    if (is_first_save == true)
         {
-	        std::cout << "Error opening the input file."; 
-	        return;
+        Saved_Target_Data.open(filename); // opens/creates necessary text file for inputting data into
+        is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
+        Saved_Target_Data << "id, x,y, kx,ky, vx,vy, score\n";
+        }
+    else 
+        {
+        Saved_Target_Data.open(filename, std::ios::app); // append data to the text file
         }
 
-// Write Target data to created text file by looping through all entries -- uses range based for loop
-for (Target* target : full_target_list)
-    {
-
-        // Create a pointer to go through the current linked list when reading through the list of linked lists
-        Target* current = target;
-
-        // Loop through the linked list until reaching the end which is signified by a nullptr
-        while (current != nullptr)
+        // Test if stream operation failed
+        if (Saved_Target_Data.fail()) 
             {
-            Saved_Target_Data << "Target ID: " << current->getID() << "\t" << "Position: (" << current->getX() << ", " << current->getY() << ")\n"
-                              << "Velocity: (" << current->getVx() << ", " << current->getVy() << ") \n"
-                              << "Debris Likelihood: " << current->getDebrisLikelihood() << "\n";
-
-            // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
-            current = current->getNextInstancePtr();
+                std::cout << "Error opening the input file."; 
+                return;
             }
 
-    }
+    // Write Target data to created text file by looping through all entries -- uses range based for loop
+    for (Target* target : target_list)
+        {
+            // Create a pointer to go through the current linked list when reading through the list of linked lists
+            Target* current = target;
 
-Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
+            // check if printing all instances or just most recent
+            if (print_all_instances) {
+                // Find first instance in linked list
+                while (current->getPrevInstancePtr() != nullptr ) {
+                    current = current->getPrevInstancePtr();
+                }
+            }
+            
+            Saved_Target_Data << current->getID();
+
+            // Loop through the linked list until reaching the end which is signified by a nullptr
+            while (current != nullptr)
+                {
+                Saved_Target_Data 
+                    << ",\t" << current->getX() << "," << current->getY()
+                    << ",\t" << current->getKx() << "," << current->getKy()
+                    << ",\t" << current->getVx() << "," << current->getVy()
+                    << ",\t" << current->getDebrisLikelihood() << "\n";
+
+                // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
+                current = current->getNextInstancePtr();
+                }
+
+        }
+
+    Saved_Target_Data.close(); // close text file being written into until next function call occurs and appends more information.
 
 }
 
-void Sentry::dumpOldTargets()  {
+void Sentry::dumpOldTargets(int cutoff_index)  {
 
 /////////////////////////////////////////////////////////////
 
@@ -452,7 +450,7 @@ void Sentry::dumpOldTargets()  {
    is created for the system to work with, this function deletes/dumps all of the old data written to the text file.
 
  Inputs: 
- None
+ int cutoff_index - index at which all preceeding elements are deleted
 
  Outputs:
  Void
@@ -464,25 +462,34 @@ void Sentry::dumpOldTargets()  {
 
 /////////////////////////////////////////////////////////////
 
+    std::cout << "dumping old targets..." << std::endl;
+
 // Loop through the vector and safely delete the actual Target objects allocated in memory
 // Then, by deleting/clearing the pointers later, there is no possibility for memory leaking or other errors
 
-    for (Target* target : full_target_list) { // loops through all of the targets in the full target list by using a range based for loop
-        Target* current = target; 
-            while (current != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
-                Target* next = current->getNextInstancePtr(); // move to next target object in list
-                delete current; // Free the target memory
-                current = next;
+    for (int i = 0; i < cutoff_index; i++) { // loops through all of the targets in the full target list by using a range based for loop
+        Target* current = full_target_list[i]; 
+        // loop through LL deleting all instances
+        while (current->getNextInstancePtr() != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
+            current = current->getNextInstancePtr(); // move to next target object in list
+            delete current->getPrevInstancePtr(); // Free the previous target memory
         }
+        delete current;
+
     }
 
     // Clear the vector full_target_list of all memory locations (pointers) now that all of the target objects have been deleted. It is now a blank vector of Target* ready for new data.
-    full_target_list.clear();
+    full_target_list.erase(full_target_list.begin(), full_target_list.begin()+cutoff_index);
+
+    // Update IDs in remaining full_target_list
+    for (size_t i = 0; i < full_target_list.size(); i++) {
+        full_target_list[i]->setID(i);
+    }
 
     // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
     // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 
     // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
-    target_debris_count.clear();
+    target_debris_count.erase(target_debris_count.begin(), target_debris_count.begin()+cutoff_index);
 
 
 

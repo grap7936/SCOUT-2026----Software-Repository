@@ -35,7 +35,7 @@ inside the Selector class.
  * returns:
  *  none - constructs the object in place.
  */
-Target::Target(int x, int y, int size) {
+Target::Target(float x, float y, int size) {
     this->x = x;
     this->y = y;
     this->size = size;
@@ -66,7 +66,7 @@ void Target::setID(int id) {
 }
 
 // Returns the raw detected x (centroid) pixel coordinate
-int Target::getX() {
+float Target::getX() {
     return this->x;
 }
 
@@ -76,7 +76,7 @@ void Target::setX(int x) {
 }
 
 // Returns the raw detected y (centroid) pixel coordinate
-int Target::getY() {
+float Target::getY() {
     return this->y;
 }
 
@@ -98,7 +98,7 @@ void Target::setSize(int size) {
 // --- Kalman predicted position (nx, ny) ------------------------------------
 
 // Returns the Kalman-predicted next x coordinate
-int Target::getNx() {
+float Target::getNx() {
     return this->nx;
 }
 
@@ -108,7 +108,7 @@ void Target::setNx(int nx) {
 }
 
 // Returns the Kalman-predicted next y coordinate
-int Target::getNy() {
+float Target::getNy() {
     return this->ny;
 }
 

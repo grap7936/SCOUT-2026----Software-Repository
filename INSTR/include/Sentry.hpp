@@ -4,6 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
+#include <omp.h>
 #include <opencv2/opencv.hpp>
 #include "Target.hpp"
 #include "Selector.hpp"
@@ -11,6 +12,9 @@
 
 class Sentry {
 private:
+
+    std::string DEBRIS_LOG_FILENAME;
+    std::string TARGET_LOG_FILENAME;
 
     int TRACKER_DEBRIS_THRESHOLD;
     int TRACKER_DECAY;
@@ -29,12 +33,12 @@ private:
     float SELECTOR_WEIGHT_COMPOSITION;
     
 
-    int current_frame_number;
+    long long int current_frame_number;
     bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
                                // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
                                // function to False for every subsequent case.
-    cv::Mat prev_frame;
-    cv::Mat next_frame;
+    // cv::Mat prev_frame;
+    // cv::Mat next_frame;
     std::vector<Target*> full_target_list;
     std::vector<Target*> prev_targets;
     std::vector<Target*> next_targets;
@@ -46,6 +50,7 @@ public:
 
     Sentry();
 
+    // Setters for primary parameters
     void setTrackerParams( int thresh, int decay, float noise_floor, float score_gain );
 
     void setDetectorParams( int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size );
@@ -54,43 +59,50 @@ public:
 
     void setAllParams( int thresh, int decay, float noise_floor, float score_gain, int refresh_freq, int blur_size, int thresh_margin, int dilation_iter, int contour_size, int close_thresh, int frame_timeout, float weight_comp );
 
-    void init( cv::Mat );
 
-    void pageFrame( cv::Mat );
+    void init( cv::Mat&, int);
 
+    void pageFrame( cv::Mat& );
+
+    // getters for primary lists
     std::vector<Target*>* getFullListPtr();
 
     std::vector<Target*>* getPrevTargetPtr();
 
     std::vector<Target*>* getNextTargetPtr();
 
-    void setNextFrame( cv::Mat );
+    // setters and getters for frames, selector, and detecctor
+    // void setNextFrame( cv::Mat );
 
-    cv::Mat getNextFrame();
+    // cv::Mat getNextFrame();
 
-    void setPrevFrame( cv::Mat );
+    // void setPrevFrame( cv::Mat );
 
-    cv::Mat getPrevFrame();
+    // cv::Mat getPrevFrame();
 
     Detector* getDetectorPtr();
 
     Selector* getSelectorPtr();
 
+    // returns a target's coordinates indexed by id
     std::vector<int> getTargetCoords( int );
 
     int getNumTargets();
 
+    // clear lists
     void clearPrevTargets();
 
     void clearNextTargets();
 
-    int findDebris( cv::Mat, int);
+    // primary function
+    int findDebris( cv::Mat&, int, long long int);
 
     void updateDebrisLikelihood();
 
-    void writeTargetsToFile(std::vector<Target*> full_target_list);
+    // storage management
+    void writeTargetsToFile(std::vector<Target*> target_list, std::string filename, bool print_all_instances);
 
-    void dumpOldTargets();
+    void dumpOldTargets(int cutoff_index);
 };
 
 #endif

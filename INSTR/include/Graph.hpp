@@ -2,6 +2,7 @@
 #define GRAPH_HPP
 
 #include <vector>
+#include <omp.h>
 #include "Target.hpp"
 
 class Graph {
@@ -16,13 +17,15 @@ private:
 public:
     
     // Constructor with root target and target list
-    Graph( Target &root, std::vector<Target*> targets );
+    Graph( Target &root, const std::vector<Target*>& targets );
 
     // Constructor with root target
     Graph( Target &root );
 
     // Backup Constructor
     Graph();
+
+    void rebuild( Target &root, const std::vector<Target*>& next );
 
 
     int getRootID(); // new
@@ -35,15 +38,15 @@ public:
 
     int getRootNY(); // new
 
-    int getVertexID(size_t);
+    int getVertexID(size_t index);
 
-    int getVertexWeight(size_t);
+    int getVertexWeight(size_t index);
 
-    int getVertexWeightByID(int);
+    int getVertexWeightByID(int id); 
 
-    Target* getVertexPtr(int);
+    Target* getVertexPtr(int index);
 
-    Target* getVertexPtrByID(int);
+    Target* getVertexPtrByID(int id);
 
     std::vector<Target*> getTargets();
 
@@ -52,9 +55,15 @@ public:
 
     void addVertex(Target*);
 
-    void addVerticesFromList(std::vector<Target*> next_targets);
+    void addVertex(Target*, int weight); // new
+
+    void addVerticesFromList(const std::vector<Target*>& next_targets);
+
+    void addVerticesFromList(const std::vector<Target*>& next_targets, const std::vector<int>& weight); // new
 
     void calcWeight(float gain1);
+
+    void calcWeightOMP(float gain1);
 
     void sortByWeight();
 

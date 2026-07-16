@@ -31,6 +31,7 @@ Selector::Selector( int thresh, int timeout, int weight_comp) {
     this->THRESHOLD = thresh;
     this->FRAME_TIMEOUT = timeout;
     this->WEIGHT_COMPOSITION = weight_comp;
+    this->relevant_target_list_offset = 0;
 
     this->prev_targets = nullptr;
     this->next_targets = nullptr;
@@ -50,6 +51,7 @@ Selector::Selector() {
     this->THRESHOLD = 1000;
     this->FRAME_TIMEOUT = 5;
     this->WEIGHT_COMPOSITION = 0.5;
+    this->relevant_target_list_offset = 0;
 
     this->prev_targets = nullptr;
     this->next_targets = nullptr;
@@ -72,6 +74,46 @@ int Selector::getThreshold() {
 // Sets the threshold value for connecting targets (pixel distance * 10)
 void Selector::setThreshold(int thresh) {
     THRESHOLD = thresh;
+}
+
+// Returns the occlusion grace window (how many frames a track may go unmatched)
+int Selector::getFrameTimeout() {
+    return FRAME_TIMEOUT;
+}
+
+// Sets the occlusion grace window (how many frames a track may go unmatched)
+void Selector::setFrameTimeout(int timeout) {
+    FRAME_TIMEOUT = timeout;
+}
+
+// Returns the gain for weight of x,y in Graph.weight()
+float Selector::getWeightComposition() {
+    return WEIGHT_COMPOSITION;
+}
+
+// Sets the gain for weight of x,y in Graph.weight()
+void Selector::setWeightComposition(float gain1) {
+    WEIGHT_COMPOSITION = gain1;
+}
+
+// Returns the frame number currently being processed
+int Selector::getCurrentFrameNum() {
+    return current_frame_num;
+}
+
+// Sets the frame number currently being processed
+void Selector::setCurrentFrameNum(int frame_num) {
+    current_frame_num = frame_num;
+}
+
+// Returns current offset in the full target list for relevant targets scan
+int Selector::getTargetListOffset() {
+    return relevant_target_list_offset;
+}
+
+// Sets the current offset in the full target list for relevant targets scan
+void Selector::setTargetListOffset(int offset) {
+    relevant_target_list_offset = offset;
 }
 
 // Returns a pointer to the previous frame's targets vector
@@ -109,34 +151,23 @@ std::vector<cv::KalmanFilter> Selector::getKFList() {
     return kf_list;
 }
 
-// Returns the frame number currently being processed
-int Selector::getCurrentFrameNum() {
-    return current_frame_num;
+
+
+// Returns a list of pointers to relevant targets for the current frame comparison
+std::vector<Target*> Selector::getRelevantTargets() {
+    return current_relevant_targets;
 }
 
-// Sets the frame number currently being processed
-void Selector::setCurrentFrameNum(int frame_num) {
-    current_frame_num = frame_num;
+// Returns a 2-element float array representing the global average [mean_vx, mean_vy]
+std::vector<float> Selector::getMeanTargetVelocity() {
+    std::vector<float> pair = { current_mean_vx, current_mean_vy };
+    return pair;
 }
 
-// Returns the occlusion grace window (how many frames a track may go unmatched)
-int Selector::getFrameTimeout() {
-    return FRAME_TIMEOUT;
-}
-
-// Sets the occlusion grace window (how many frames a track may go unmatched)
-void Selector::setFrameTimeout(int timeout) {
-    FRAME_TIMEOUT = timeout;
-}
-
-// Returns the gain for weight of x,y in Graph.weight()
-float Selector::getWeightComposition() {
-    return WEIGHT_COMPOSITION;
-}
-
-// Sets the gain for weight of x,y in Graph.weight()
-void Selector::setWeightComposition(float gain1) {
-    WEIGHT_COMPOSITION = gain1;
+// Returns a 2-element float array representing the global median [median_vx, median_vy]
+std::vector<float> Selector::getMedianTargetVelocity() {
+    std::vector<float> pair = { current_median_vx, current_median_vy };
+    return pair;
 }
 
 /* Function determineRelevantTargets()
@@ -158,25 +189,45 @@ void Selector::determineRelevantTargets() {
 
     int size = full_list->size();
 
+    // backup check in case of a dump or reset
+    if (size == 0) { relevant_target_list_offset = 0; }
+
+    // resize timed_out tracker ahead of usage
+    while ( size > (int)is_timed_out.size() ) {
+        is_timed_out.push_back(false);
+    }
+
     // Keep only tracks that have a historical link chain and are still within the live window
-    for (int i = 0; i < size; i++) {
+    for (int i = relevant_target_list_offset; i < size; i++) {
         Target* current_instance = (*full_list)[i];
-        if (current_instance->getPrevInstancePtr() != nullptr && current_instance->getFrameNum() >= current_frame_num - FRAME_TIMEOUT) {
-            current_relevant_targets.push_back( current_instance );
+        // check if linked
+        if (current_instance->getPrevInstancePtr() != nullptr) {
+            // check if linked target is too old
+            if (current_instance->getFrameNum() >= current_frame_num - FRAME_TIMEOUT) {
+                current_relevant_targets.push_back( current_instance );
+            } 
+        } 
+        // update timed_out vector values
+        if (current_instance->getFrameNum() < current_frame_num - FRAME_TIMEOUT) {
+            is_timed_out[i] = true;
         }
     }
 
+    // update offset for next relevant targets iteration
+    updateRTOffset();
+
 }
 
-// Returns a list of pointers to relevant targets for the current frame comparison
-std::vector<Target*> Selector::getRelevantTargets() {
-    return current_relevant_targets;
-}
+void Selector::updateRTOffset() {
 
-// Returns a 2-element float array representing the global average [mean_vx, mean_vy]
-std::vector<float> Selector::getMeanTargetVelocity() {
-    std::vector<float> pair = { current_mean_vx, current_mean_vy };
-    return pair;
+    int i = relevant_target_list_offset;
+    // safety check for i = 0 edge case. if current id is not timed out, don't update
+    //if ( i == 0 ) { return; }
+
+    // iterate through timed_out list until i+1 (next id) is not timed out
+    while ( i+1 < (int)is_timed_out.size() && is_timed_out[i+1] ) { i++; }
+
+    relevant_target_list_offset = i;
 }
 
 /* Function calculateMeanVelocity()
@@ -214,12 +265,6 @@ void Selector::calculateMeanVelocity() {
     current_mean_vx = x_sum / size;
     current_mean_vy = y_sum / size;
 
-}
-
-// Returns a 2-element float array representing the global median [median_vx, median_vy]
-std::vector<float> Selector::getMedianTargetVelocity() {
-    std::vector<float> pair = { current_median_vx, current_median_vy };
-    return pair;
 }
 
 /* Function calculateMedianVelocity()
@@ -271,71 +316,65 @@ void Selector::calculateMedianVelocity() {
 
 }
 
-/* Function initTarget( Target* new_target, float est_vx, float est_vy )
+/* Function scan( vector<Target*>* prev, vector<Target*>* next, vector<Target*>* full )
  * description:
- * Promotes a brand-new detection into a tracked target: assigns it the next sequential
- * ID, appends it to full_list, and builds its own 4D constant-velocity Kalman filter
- * (state [x, y, vx, vy]) which is appended to kf_list. Because the ID is set to the
- * pre-push size of full_list and both lists are pushed once here, the invariant
- * kf_list[id] == this target's filter holds for the life of the track.
+ * Scans all targets from prevTargets[] and nextTargets[] to determine which targets exist across both sets. 
+ * Updates target ids for related targets and connects data pointers.
  * inputs:
- * Target* new_target - pointer to the uninitialized target.
- * float est_vx, est_vy - initial velocity estimate seeded into the filter's state
- *                        (the group median velocity, so new tracks start with the
- *                        swarm's motion rather than zero).
+ * vector<Target*>* prev - pointer to vector of Target pointers in 'previous' frame
+ * vector<Target*>* next - pointer to vector of Target pointers in 'next' frame
+ * vector<Target*>* full - pointer to the global master registry vector tracking all targets
  * returns:
- * void - updates fields within new_target, appends to full_list and kf_list.
+ * void - updates all ids as well as nextInstance and prevInstance pointers for targets that exist in both sets.
  */
-void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
+void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full, int frame_num ) {
 
-    // Assign a unique ID based on the current number of tracked targets, then store it
-    new_target->setID( getFullTargetList()->size() );
-    new_target->setKx( new_target->getX() );
-    new_target->setKy( new_target->getY() );
-    getFullTargetList()->push_back(new_target);
+    // Cache structural parameters safely locally within class state pointers
+    setNextTargets(next);
+    setPrevTargets(prev);
+    setFullTargetList(full);
+    setCurrentFrameNum(frame_num);
 
-    // Initialize Kalman Filter parameters
-    // State vector: [x, y, vx, vy]^T -> 4 dimensions (Position & Velocity)
-    // Measurement vector: [x, y]     -> 2 dimensions (Observed Camera Coordinates)
-    int stateDim = 4;
-    int measDim = 2;
-    int ctrlDim = 0;
-    
-    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_64F);
+    // Phase 1: Advance historical tracking equations forward to match current time frame
+    estimateNextState();
 
-    // Define the State Transition Matrix (A) assuming a constant velocity model:
-    // x_next  = 1*x  + 0*y  + 1*vx + 0*vy
-    // y_next  = 0*x  + 1*y  + 0*vx + 1*vy
-    // vx_next = 0*x  + 0*y  + 1*vx + 0*vy
-    // vy_next = 0*x  + 0*y  + 0*vx + 1*vy
-    KF.transitionMatrix = (cv::Mat_<double>(4,4) << 1.0,0.0,1.0,0.0, 0.0,1.0,0.0,1.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);
+    // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
+    computeWeights();
 
-    // Define Measurement Matrix (H) to isolate observed variables:
-    // Extracts directly measured position [x, y] from the 4D state vector
-    KF.measurementMatrix = (cv::Mat_<double>(2,4) << 1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0);
+    // Phase 3: Solve the cost allocation problem and update node linking identities
+    connect();
 
-    // Tune filter noise models
-    // Process noise covariance (Q)
-    KF.processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-4;
-    
-    // Measurement noise covariance (R)
-    KF.measurementNoiseCov = cv::Mat::eye(measDim, measDim, CV_64F) * 1e-1;
-    
-    // Posteriori error estimate covariance (P)
-    KF.errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1.0;
-
-    // Seed the filter with the initial position coordinates; velocity starts at the swarm's current mean velocity
-    KF.statePost = cv::Mat_<double>(4,1);
-    KF.statePost.at<double>(0, 0) = static_cast<double>(new_target->getX());
-    KF.statePost.at<double>(1, 0) = static_cast<double>(new_target->getY());
-    KF.statePost.at<double>(2, 0) = static_cast<double>(est_vx);
-    KF.statePost.at<double>(3, 0) = static_cast<double>(est_vy);
-
-    // Store the filter in the external array; its index now matches this target's id
-    kf_list.push_back( KF );
 }
 
-/* Function computeWeights( float gain1 )
+/* Function estimateNextState()
+ * description:
+ * Runs the linear prediction step of the Kalman filter for all active targets tracked in the previous frame to project their next locations.
+ * inputs:
+ * none
+ * returns:
+ * void - populates fields nx and ny for each target within prev_targets.
+ */
+void Selector::estimateNextState() {
+
+    // Break early if no historical entities exist to project forwards
+    if ( prev_targets->size() == 0 ) { return; }
+
+    // Propagate all elements into their projected state windows
+    #pragma omp parallel for
+    for (size_t i = 0; i < prev_targets->size(); i++) {
+
+        Target* target = (*prev_targets)[i];
+
+        // Advance state tracking equations forward in time (Prediction stage)
+        cv::Mat prediction = kf_list[target->getID()].predict();
+
+        // Extract projected location predictions and store inside node properties
+        target->setNx( prediction.at<double>(0,0) ); // Predicted X position coordinate
+        target->setNy( prediction.at<double>(1,0) ); // Predicted Y position coordinate
+    }  
+}
+
+/* Function computeWeights()
  * description:
  * Builds the proximity-cost graph for every previous track. For each target in
  * prev_targets it constructs a Graph rooted at that target and containing all
@@ -353,86 +392,28 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
  * these graphs are never freed, so this leaks once per track per frame.
  */
 void Selector::computeWeights() {
+    
+    const bool parallel_outer = ( prev_targets->size() > next_targets->size() );
+    // Check which vector is larger to determine the better parallelization method
+    #pragma omp parallel for if(parallel_outer)
+    // loop through
     for ( size_t i = 0; i < prev_targets->size(); i++) {
-        Graph* new_graph = new Graph(*(*prev_targets)[i], (*next_targets));
-        new_graph->calcWeight( WEIGHT_COMPOSITION );
-        if ( (*prev_targets)[i]->getProximity() != nullptr ) {
-            delete (*prev_targets)[i]->getProximity();
+        Target* p = (*prev_targets)[i];
+
+        Graph* g = p->getProximity();
+        if ( g == nullptr ) {
+            // allocate graph on heap
+            g = new Graph();          // once per Target, ever
+            // link graph to target
+            p->setProximity(g);
         }
-        (*prev_targets)[i]->setProximity(new_graph);
-    }
-}
+        // constuct from current target lists
+        g->rebuild( *p, *next_targets );
 
-/* Function connect()
- * description:
- * Connects all related targets from prevTargets[] and nextTargets[].
- * inputs:
- * none
- * returns:
- * void - sets Target.nextInstance pointers for targets in prevTargets[].
- * - sets Target.prevInstance pointers for targets in nextTargets[].
- * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'THRESHOLD' (see Constructor).
- */
-void Selector::connect() {
-    int prev_size = prev_targets->size();
-    int next_size = next_targets->size();
-
-    // Allocation tracking bitset to map which prospective destinations have been locked
-    std::vector<bool> next_targets_used(next_targets->size(), 0);
-
-    // Build the 2D linear assignment matrix (Rows = Previous targets, Columns = Next targets)
-    std::vector<std::vector<int>> proximity_matrix;
-    for ( int i = 0; i < prev_size; i++ ) {
-        proximity_matrix.push_back( (*prev_targets)[i]->getProximity()->getWeights() );
-    }
-
-    // Execute Hungarian Optimizer to discover the globally minimized cost association path
-    std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
-
-    // Evaluate associations assigned to each historical trace entry
-    for ( int j = 0; j < prev_size; j++ ) {
-        int connect_index = col_from_row[j];
-        
-        // Safeguard matching outputs against structural rectangular padding indexes
-        if ( connect_index > next_size - 1 ) {
-            continue;
-        }
-
-        // Branching check: If error variance exceeds threshold, do not connect
-        if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > THRESHOLD) {
-            continue;
-        } else {
-            // Valid track association: Tie linked lists together across frames
-            (*prev_targets)[j]->setNextInstancePtr( (*prev_targets)[j]->getProximity()->getVertexPtr(connect_index) );
-            (*prev_targets)[j]->getNextInstancePtr()->setPrevInstancePtr( (*prev_targets)[j] );
-            
-            // Forward identity attributes down the matched track line
-            (*prev_targets)[j]->getNextInstancePtr()->setID( (*prev_targets)[j]->getID() );
-            
-            // Mark destination node as handled
-            next_targets_used[connect_index] = 1;
-            
-            // Overwrite master registry pointer to point to the newest active instance
-            (*full_list)[(*prev_targets)[j]->getNextInstancePtr()->getID()] = (*prev_targets)[j]->getNextInstancePtr();
-        }
-    }
-
-    // Update kalman filter velocity estimate prior to calculating median velocity
-    updateEstimate();
-
-    // Prior to cleanup pass, determine median velocity
-    determineRelevantTargets();
-    calculateMedianVelocity();
-
-    // Cleanup pass: Unassigned elements in the new frame are spawned as fresh tracking sources
-    for (size_t i = 0; i < next_targets->size(); i++) {
-        if ( next_targets_used[i] == true ) {
-            continue; // Node already successfully bound to a previous path
-        } else {
-            std::vector<float> estimated_velocity = getMedianTargetVelocity();
-            initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]); // Brand new detection, initialize path history
-        }
-    }
+        // calculate weight
+        if (parallel_outer) g->calcWeight( WEIGHT_COMPOSITION );
+        else                g->calcWeightOMP( WEIGHT_COMPOSITION );
+    }    
 }
 
 /* Function hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix )
@@ -529,31 +510,415 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
     return assignment;
 }
 
-/* Function estimateNextState()
+/* Function connect()
  * description:
- * Runs the linear prediction step of the Kalman filter for all active targets tracked in the previous frame to project their next locations.
+ * Connects all related targets from prevTargets[] and nextTargets[].
  * inputs:
  * none
  * returns:
- * void - populates fields nx and ny for each target within prev_targets.
+ * void - sets Target.nextInstance pointers for targets in prevTargets[].
+ * - sets Target.prevInstance pointers for targets in nextTargets[].
+ * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'THRESHOLD' (see Constructor).
  */
-void Selector::estimateNextState() {
+// void Selector::connect() {
+//     int prev_size = prev_targets->size();
+//     int next_size = next_targets->size();
 
-    // Break early if no historical entities exist to project forwards
-    if ( prev_targets->size() == 0 ) { return; }
+//     // Allocation tracking bitset to map which prospective destinations have been locked
+//     std::vector<bool> next_targets_used(next_targets->size(), 0);
 
-    // Propagate all elements into their projected state windows
-    for (size_t i = 0; i < prev_targets->size(); i++) {
+//     // Simple connect, check if one or less objects within threshold.
 
-        Target* target = (*prev_targets)[i];
+//     // Step 1: for every detection, count how many prev_targets hold it as their
+//     // single sub-threshold candidate. A count > 1 means the singleton is contested.
+//     std::vector<int> singleton_claims(next_size, 0);     // claims on a detection by 1-candidate tracks
+//     std::vector<int> sole_candidate_col(prev_size, -1);  // the lone candidate col per prev (-1 if !=1 candidate)
 
-        // Advance state tracking equations forward in time (Prediction stage)
-        cv::Mat prediction = kf_list[target->getID()].predict();
+//     for ( int j = 0; j < prev_size; j++ ) {
+//         std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
+//         int found = -1;
+//         int count = 0;
+//         for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
+//             if ( w[c] <= THRESHOLD ) {
+//                 count++;
+//                 found = c;
+//                 if ( count > 1 ) { break; } // no need to keep counting past 2
+//             }
+//         }
+//         if ( count == 1 ) {
+//             sole_candidate_col[j] = found;
+//             singleton_claims[found]++;
+//         }
+//         // count == 0 -> sole_candidate_col stays -1, track is dropped (no defer, no connect)
+//         // count >= 2 -> sole_candidate_col stays -1, track is deferred below
+//     }
 
-        // Extract projected location predictions and store inside node properties
-        target->setNx( prediction.at<double>(0,0) ); // Predicted X position coordinate
-        target->setNy( prediction.at<double>(1,0) ); // Predicted Y position coordinate
-    }  
+//     // Step 2: commit uncontested singletons, defer everything ambiguous.
+//     std::vector<int> hungarian_rows; // prev_target indices that still need the optimizer
+//     for ( int j = 0; j < prev_size; j++ ) {
+//         std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
+
+//         // Recount only enough to classify this row (0, 1, or 2+ candidates).
+//         int candidate_count = 0;
+//         for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
+//             if ( w[c] <= THRESHOLD ) { candidate_count++; if ( candidate_count > 1 ) break; }
+//         }
+
+//         if ( candidate_count == 0 ) {
+//             continue; // no plausible match -> drop from consideration entirely
+//         }
+
+//         int sole = sole_candidate_col[j];
+//         if ( candidate_count == 1 && sole != -1
+//              && singleton_claims[sole] == 1
+//              && next_targets_used[sole] == false ) {
+//             // Uncontested singleton: connect immediately (mirrors the Hungarian commit path).
+//             Target* prev = (*prev_targets)[j];
+//             Target* next = prev->getProximity()->getVertexPtr(sole);
+
+//             prev->setNextInstancePtr( next );
+//             next->setPrevInstancePtr( prev );
+//             next->setID( prev->getID() );
+
+//             next_targets_used[sole] = true;
+//             (*full_list)[ next->getID() ] = next;
+//         } else {
+//             // Contested singleton or multi-candidate: leave it for the optimizer.
+//             hungarian_rows.push_back(j);
+//         }
+//     }
+
+//     // Build the column map: the real next_target indices still undetermined after the
+//     // greedy pass (i.e. not claimed by an uncontested singleton). The Hungarian matrix
+//     // is built over ONLY these columns, so its width shrinks to the contested detections
+//     // rather than spanning all of next_targets. hungarian_cols[local_col] -> real col.
+//     std::vector<int> hungarian_cols;
+//     for ( int c = 0; c < next_size; c++ ) {
+//         if ( !next_targets_used[c] ) { hungarian_cols.push_back(c); }
+//     }
+
+//     // Build the 2D linear assignment matrix over the trimmed (deferred rows) x
+//     // (undetermined columns) sub-problem. Each row pulls only the weights at the
+//     // surviving columns, in hungarian_cols order, so row[local_col] corresponds to
+//     // hungarian_cols[local_col] in the real next_targets indexing.
+//     std::vector<std::vector<int>> proximity_matrix;
+//     for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
+//         std::vector<int> full_row = (*prev_targets)[ hungarian_rows[r] ]->getProximity()->getWeights();
+//         std::vector<int> trimmed_row;
+//         trimmed_row.reserve(hungarian_cols.size());
+//         for ( size_t lc = 0; lc < hungarian_cols.size(); lc++ ) {
+//             trimmed_row.push_back( full_row[ hungarian_cols[lc] ] );
+//         }
+//         proximity_matrix.push_back( trimmed_row );
+//    }
+
+//     // Execute Hungarian Optimizer on the trimmed matrix (may be empty -> no-op).
+//     std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
+
+//     // Evaluate associations assigned to each DEFERRED historical trace entry.
+//     // r indexes the trimmed matrix rows; hungarian_rows[r] maps back to the prev_target,
+//     // and hungarian_cols[local_col] maps the solver's column back to the real next_target.
+//     for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
+//         int j = hungarian_rows[r];
+//         int local_col = col_from_row[r];
+
+//         // Safeguard against rectangular padding indexes produced by the optimizer
+//         // (padding columns have no entry in the trimmed column map).
+//         if ( local_col < 0 || local_col > (int)hungarian_cols.size() - 1 ) {
+//            continue;
+//         }
+
+//         // Translate the solver's local column back into the real next_targets index.
+//         int connect_index = hungarian_cols[local_col];
+
+//         // Branching check: If error variance exceeds threshold, do not connect
+//         if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > THRESHOLD) {
+//             continue;
+//         } else {
+//             // Valid track association: Tie linked lists together across frames
+//             (*prev_targets)[j]->setNextInstancePtr( (*prev_targets)[j]->getProximity()->getVertexPtr(connect_index) );
+//             (*prev_targets)[j]->getNextInstancePtr()->setPrevInstancePtr( (*prev_targets)[j] );
+            
+//             // Forward identity attributes down the matched track line
+//             (*prev_targets)[j]->getNextInstancePtr()->setID( (*prev_targets)[j]->getID() );
+            
+//             // Mark destination node as handled
+//             next_targets_used[connect_index] = 1;
+            
+//             // Overwrite master registry pointer to point to the newest active instance
+//             (*full_list)[(*prev_targets)[j]->getNextInstancePtr()->getID()] = (*prev_targets)[j]->getNextInstancePtr();
+//         }
+//     }
+
+//     // Update kalman filter velocity estimate prior to calculating median velocity
+//     updateEstimate();
+
+//     // Prior to cleanup pass, determine median velocity
+//     determineRelevantTargets();
+//     calculateMedianVelocity();
+
+//     // Cleanup pass: Unassigned elements in the new frame are spawned as fresh tracking sources
+//     for (size_t i = 0; i < next_targets->size(); i++) {
+//         if ( next_targets_used[i] == true ) {
+//             continue; // Node already successfully bound to a previous path
+//         } else {
+//             std::vector<float> estimated_velocity = getMedianTargetVelocity();
+//             initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]); // Brand new detection, initialize path history
+//         }
+//     }
+// }
+void Selector::connect() {
+    int prev_size = prev_targets->size();
+    int next_size = next_targets->size();
+
+    // Nothing to match against -> every detection is a fresh track (handled in the
+    // cleanup tail, unchanged). Bail early to avoid empty-band bookkeeping.
+    if ( prev_size == 0 || next_size == 0 ) {
+        // Still must run the tail so new detections spawn and velocity stats refresh.
+        updateEstimate();
+        determineRelevantTargets();
+        calculateMedianVelocity();
+        for (size_t i = 0; i < next_targets->size(); i++) {
+            std::vector<float> estimated_velocity = getMedianTargetVelocity();
+            initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]);
+        }
+        return;
+    }
+
+    // ------------------------------------------------------------------
+    // Spatial binning along the Y axis.
+    //
+    // Objects travel parallel to X, so a track and its next-frame detection stay
+    // in nearly the same Y band. We partition BOTH prev and next targets into
+    // horizontal strips and solve each strip as an independent assignment problem.
+    // This replaces one O(N^2 * M) Hungarian solve with B smaller independent
+    // solves, which are also run in parallel.
+    //
+    // Band height is tied to THRESHOLD: a valid match's weight is a scaled distance
+    // (see Graph::calcWeight -> distance*10 blended), so two targets that could ever
+    // match must be within ~THRESHOLD/10 pixels in Y. Making each band at least that
+    // tall means a real match can span at most two adjacent bands; the one-band
+    // overlap below covers that boundary case so no legitimate match is lost.
+    // ------------------------------------------------------------------
+
+    // Determine the Y-range actually occupied by targets this frame (no frame-height
+    // dependency needed -- derived straight from the data).
+    float y_min =  1e9f, y_max = -1e9f;
+    for (int j = 0; j < prev_size; j++) {
+        float y = (*prev_targets)[j]->getNy(); // predicted position is where prev expects to land
+        if (y < y_min) y_min = y;
+        if (y > y_max) y_max = y;
+    }
+    for (int c = 0; c < next_size; c++) {
+        float y = (*next_targets)[c]->getY();
+        if (y < y_min) y_min = y;
+        if (y > y_max) y_max = y;
+    }
+
+    // Band height: at least the max plausible match distance in Y, so real matches
+    // never straddle more than two bands. THRESHOLD is in the *weighted* space
+    // (distance*10), so divide back out. Guard against degenerate tiny values.
+    float band_h = static_cast<float>(THRESHOLD) / 10.0f;
+    if (band_h < 1.0f) band_h = 1.0f;
+
+    float span = y_max - y_min;
+    if (span < 0.0f) span = 0.0f;
+    int num_bands = static_cast<int>(span / band_h) + 1;
+    if (num_bands < 1) num_bands = 1;
+
+    // Assign each prev/next target to its band index by Y.
+    auto band_of = [&](float y) -> int {
+        int b = static_cast<int>((y - y_min) / band_h);
+        if (b < 0) b = 0;
+        if (b >= num_bands) b = num_bands - 1;
+        return b;
+    };
+
+    // Bucket target indices per band. We duplicate each PREV target into its own band
+    // AND the adjacent band toward which its predicted motion in Y points, so a match
+    // that straddles a boundary is still found. NEXT targets live in exactly one band.
+    std::vector<std::vector<int>> prev_bins(num_bands);
+    std::vector<std::vector<int>> next_bins(num_bands);
+
+    for (int c = 0; c < next_size; c++) {
+        next_bins[ band_of((*next_targets)[c]->getY()) ].push_back(c);
+    }
+    for (int j = 0; j < prev_size; j++) {
+        int b = band_of((*prev_targets)[j]->getNy());
+        prev_bins[b].push_back(j);
+        // One-band overlap guard: also let this prev compete in the neighboring band
+        // it sits closest to, so boundary-straddling matches aren't dropped.
+        float local = ((*prev_targets)[j]->getNy() - y_min) - b * band_h;
+        if (local < band_h * 0.5f && b - 1 >= 0)        prev_bins[b - 1].push_back(j);
+        else if (local >= band_h * 0.5f && b + 1 < num_bands) prev_bins[b + 1].push_back(j);
+    }
+
+    // Per-band results are written into these shared, pre-sized arrays. Index by the
+    // REAL next-target column so bands never write the same slot (a next target is in
+    // exactly one band). prev targets can appear in two bands (overlap), so we resolve
+    // their assignment by best weight after the parallel section.
+    std::vector<int>  next_owner(next_size, -1);      // which prev index claimed this next
+    std::vector<int>  next_owner_w(next_size, INT_MAX); // weight of that claim
+    std::vector<bool> next_targets_used(next_size, false);
+
+    // Mutex-free merge: each band proposes (prev_j -> next_c, weight); we keep the
+    // lowest-weight proposal per next_c. Collect proposals per band, merge serially.
+    std::vector<std::vector<std::array<int,3>>> band_proposals(num_bands); // {next_c, prev_j, weight}
+
+    #pragma omp parallel for schedule(dynamic)
+    for (int b = 0; b < num_bands; b++) {
+        const std::vector<int>& rows = prev_bins[b];
+        const std::vector<int>& cols = next_bins[b];
+        if (rows.empty() || cols.empty()) continue;
+
+        // Build this band's cost matrix: local rows x local cols, pulling weights from
+        // each prev's proximity graph at the REAL next column index.
+        std::vector<std::vector<int>> band_matrix(rows.size(),
+                                                  std::vector<int>(cols.size(), 0));
+        for (size_t lr = 0; lr < rows.size(); lr++) {
+            std::vector<int> full_row = (*prev_targets)[ rows[lr] ]->getProximity()->getWeights();
+            for (size_t lc = 0; lc < cols.size(); lc++) {
+                band_matrix[lr][lc] = full_row[ cols[lc] ];
+            }
+        }
+
+        // Solve this band. hungarianAlgorithm is const w.r.t. shared state (operates on
+        // its own copy), so calling it from parallel bands is safe.
+        std::vector<int> col_from_row = hungarianAlgorithm(band_matrix);
+
+        // Translate local assignment back to real indices; gate on THRESHOLD.
+        std::vector<std::array<int,3>> proposals;
+        for (size_t lr = 0; lr < rows.size(); lr++) {
+            if (lr >= col_from_row.size()) continue;
+            int lc = col_from_row[lr];
+            if (lc < 0 || lc >= (int)cols.size()) continue; // padding column
+            int j = rows[lr];
+            int connect_index = cols[lc];
+            int w = (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index);
+            if (w > THRESHOLD) continue; // too far -> not a real match
+            proposals.push_back({connect_index, j, w});
+        }
+        band_proposals[b] = std::move(proposals);
+    }
+
+    // ------------------------------------------------------------------
+    // Serial merge of per-band proposals. A prev target that appeared in two bands
+    // may produce two proposals; a next target may be proposed by two prevs. Keep the
+    // lowest-weight proposal per next target, and ensure each prev is used at most once.
+    // ------------------------------------------------------------------
+    std::vector<bool> prev_used(prev_size, false);
+
+    // First pass: choose the best (lowest-weight) prev claim for each next target.
+    for (int b = 0; b < num_bands; b++) {
+        for (const auto& p : band_proposals[b]) {
+            int next_c = p[0], prev_j = p[1], w = p[2];
+            if (w < next_owner_w[next_c]) {
+                next_owner_w[next_c] = w;
+                next_owner[next_c]   = prev_j;
+            }
+        }
+    }
+
+    // Second pass: commit, respecting one-match-per-prev. If a prev was already used
+    // (won a closer next), the loser next stays unmatched and becomes a new track.
+    for (int next_c = 0; next_c < next_size; next_c++) {
+        int j = next_owner[next_c];
+        if (j < 0) continue;
+        if (prev_used[j]) continue; // prev already linked to a closer detection
+        prev_used[j] = true;
+
+        Target* prev = (*prev_targets)[j];
+        Target* next = (*next_targets)[next_c];
+
+        prev->setNextInstancePtr( next );
+        next->setPrevInstancePtr( prev );
+        next->setID( prev->getID() );
+        next_targets_used[next_c] = true;
+        (*full_list)[ next->getID() ] = next;
+    }
+
+    // ------------------------------------------------------------------
+    // Tail: identical to the original. Correct filters, refresh relevant/median,
+    // then spawn brand-new tracks for any unmatched detection.
+    // ------------------------------------------------------------------
+    updateEstimate();
+
+    determineRelevantTargets();
+    calculateMedianVelocity();
+
+    for (size_t i = 0; i < next_targets->size(); i++) {
+        if ( next_targets_used[i] == true ) {
+            continue;
+        } else {
+            std::vector<float> estimated_velocity = getMedianTargetVelocity();
+            initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]);
+        }
+    }
+}
+
+/* Function initTarget( Target* new_target, float est_vx, float est_vy )
+ * description:
+ * Promotes a brand-new detection into a tracked target: assigns it the next sequential
+ * ID, appends it to full_list, and builds its own 4D constant-velocity Kalman filter
+ * (state [x, y, vx, vy]) which is appended to kf_list. Because the ID is set to the
+ * pre-push size of full_list and both lists are pushed once here, the invariant
+ * kf_list[id] == this target's filter holds for the life of the track.
+ * inputs:
+ * Target* new_target - pointer to the uninitialized target.
+ * float est_vx, est_vy - initial velocity estimate seeded into the filter's state
+ *                        (the group median velocity, so new tracks start with the
+ *                        swarm's motion rather than zero).
+ * returns:
+ * void - updates fields within new_target, appends to full_list and kf_list.
+ */
+void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
+
+    // Assign a unique ID based on the current number of tracked targets, then store it
+    new_target->setID( getFullTargetList()->size() );
+    new_target->setKx( new_target->getX() );
+    new_target->setKy( new_target->getY() );
+    getFullTargetList()->push_back(new_target);
+
+    // Initialize Kalman Filter parameters
+    // State vector: [x, y, vx, vy]^T -> 4 dimensions (Position & Velocity)
+    // Measurement vector: [x, y]     -> 2 dimensions (Observed Camera Coordinates)
+    int stateDim = 4;
+    int measDim = 2;
+    int ctrlDim = 0;
+    
+    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_64F);
+
+    // Define the State Transition Matrix (A) assuming a constant velocity model:
+    // x_next  = 1*x  + 0*y  + 1*vx + 0*vy
+    // y_next  = 0*x  + 1*y  + 0*vx + 1*vy
+    // vx_next = 0*x  + 0*y  + 1*vx + 0*vy
+    // vy_next = 0*x  + 0*y  + 0*vx + 1*vy
+    KF.transitionMatrix = (cv::Mat_<double>(4,4) << 1.0,0.0,1.0,0.0, 0.0,1.0,0.0,1.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);
+
+    // Define Measurement Matrix (H) to isolate observed variables:
+    // Extracts directly measured position [x, y] from the 4D state vector
+    KF.measurementMatrix = (cv::Mat_<double>(2,4) << 1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0);
+
+    // Tune filter noise models
+
+    // Process noise covariance (Q) - increasing this makes KF learn new speeds faster
+    KF.processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-2; // was 1e-4
+    
+    // Measurement noise covariance (R) - noise pixel position
+    KF.measurementNoiseCov = cv::Mat::eye(measDim, measDim, CV_64F) * 1e-1;
+    
+    // Posteriori error estimate covariance (P) - noise error in first estimate (initialization)
+    KF.errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 3.0; // was 1.0
+
+    // Seed the filter with the initial position coordinates; velocity starts at the swarm's current mean velocity
+    KF.statePost = cv::Mat_<double>(4,1);
+    KF.statePost.at<double>(0, 0) = static_cast<double>(new_target->getX());
+    KF.statePost.at<double>(1, 0) = static_cast<double>(new_target->getY());
+    KF.statePost.at<double>(2, 0) = static_cast<double>(est_vx);
+    KF.statePost.at<double>(3, 0) = static_cast<double>(est_vy);
+
+    // Store the filter in the external array; its index now matches this target's id
+    kf_list.push_back( KF );
 }
 
 /* Function updateEstimate()
@@ -567,6 +932,7 @@ void Selector::estimateNextState() {
 void Selector::updateEstimate() {
     
     // Cycle active listings to reconcile real visual measurements against filter predictions
+    #pragma omp parallel for
     for (size_t i = 0; i < next_targets->size(); i++) {
         Target* target = (*next_targets)[i];
         
@@ -590,32 +956,3 @@ void Selector::updateEstimate() {
     }
 }
 
-/* Function scan( vector<Target*>* prev, vector<Target*>* next, vector<Target*>* full )
- * description:
- * Scans all targets from prevTargets[] and nextTargets[] to determine which targets exist across both sets. 
- * Updates target ids for related targets and connects data pointers.
- * inputs:
- * vector<Target*>* prev - pointer to vector of Target pointers in 'previous' frame
- * vector<Target*>* next - pointer to vector of Target pointers in 'next' frame
- * vector<Target*>* full - pointer to the global master registry vector tracking all targets
- * returns:
- * void - updates all ids as well as nextInstance and prevInstance pointers for targets that exist in both sets.
- */
-void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full, int frame_num ) {
-
-    // Cache structural parameters safely locally within class state pointers
-    setNextTargets(next);
-    setPrevTargets(prev);
-    setFullTargetList(full);
-    setCurrentFrameNum(frame_num);
-
-    // Phase 1: Advance historical tracking equations forward to match current time frame
-    estimateNextState();
-
-    // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
-    computeWeights();
-
-    // Phase 3: Solve the cost allocation problem and update node linking identities
-    connect();
-
-}

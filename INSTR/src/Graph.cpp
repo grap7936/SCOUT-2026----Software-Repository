@@ -17,7 +17,7 @@ order the vertices cheapest-first.
 #include <Graph.hpp>
 
 // Constructor initializing the graph with a root target and its candidate vertex list
-Graph::Graph( Target &root, std::vector<Target*> targets ) {
+Graph::Graph( Target &root, const std::vector<Target*>& targets ) {
 
     this->root_id = root.getID();
     this->root_x = root.getX();
@@ -54,6 +54,21 @@ Graph::Graph() {
     this->targets = {};
     this->weights = {};
 }
+
+
+// rebuild graph without deleting & reallocating
+void Graph::rebuild( Target &root, const std::vector<Target*>& next ) {
+    root_id = root.getID();
+    root_x  = root.getX();
+    root_y  = root.getY();
+    root_nx = root.getNx();
+    root_ny = root.getNy();
+
+    targets.clear();          // retains capacity — no free, no realloc
+    weights.clear();
+    addVerticesFromList( next );
+}
+
 
 // Returns the target id of the root target
 int Graph::getRootID() {
@@ -164,6 +179,20 @@ void Graph::addVertex( Target* vertex ) {
     weights.push_back ( 0 );
 }
 
+/* Function addVertex( Target* vertex, int weight )
+ * description:
+ *  Appends a new target into tracking vector.
+ * inputs:
+ *  Target* vertex - Pointer to the target being evaluated.
+ *  int weight - custom weight value, usually from graphTest.cpp
+ * returns:
+ *  void - Modifies the targets vector in-place.
+ */
+void Graph::addVertex( Target* vertex, int weight ) {
+    targets.push_back( vertex );
+    weights.push_back ( weight );
+}
+
 /* Function addVerticesFromList( std::vector<Target*> vertices )
  * description:
  *  Appends several new targets into tracking vector.
@@ -172,12 +201,34 @@ void Graph::addVertex( Target* vertex ) {
  * returns:
  *  void - Modifies the targets vector in-place.
  */
-void Graph::addVerticesFromList( std::vector<Target*> vertices ) {
-    int size = vertices.size();
-    for (int i = 0; i < size; i++) {
+void Graph::addVerticesFromList( const std::vector<Target*>& vertices ) {
+    const size_t size = vertices.size();
+    targets.reserve(targets.size() + size);
+    weights.reserve(weights.size() + size);
+    for (size_t i = 0; i < size; i++) {
         addVertex( vertices[i] );
     }
     
+}
+
+/* Function addVerticesFromList( std::vector<Target*> vertices, std::vector<int> weight )
+ * description:
+ *  Appends several new targets into tracking vector.
+ * inputs:
+ *  std::vector<Target*> vertices - List of pointers to targets being evaluated.
+ *  std::vector<int> weight - List of weights corresponding to vertices list
+ * returns:
+ *  void - Modifies the targets vector in-place.
+ */
+void Graph::addVerticesFromList( const std::vector<Target*>& vertices, const std::vector<int>& weight ) {
+    
+    const size_t size = vertices.size();
+    targets.reserve(targets.size() + size);
+    weights.reserve(weights.size() + size);
+    for (size_t i = 0; i < size; i++) {
+        addVertex( vertices[i], weight[i] );
+    }
+   
 }
 
 /* Function calcWeight( float gain1 )
@@ -204,13 +255,13 @@ void Graph::calcWeight( float gain1 ) {
         // Step 1: Distance between the root's last measured position and this candidate
         int dx = root_x - targets[i]->getX();
         int dy = root_y - targets[i]->getY();
-        float norm1 = std::sqrt( std::pow(dx, 2) + std::pow(dy, 2) );
+        float norm1 = std::sqrt( dx*dx + dy*dy );
         int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
 
         // Step 2: Distance between the root's Kalman-predicted position (nx, ny) and this candidate
         int dnx = root_nx - targets[i]->getX();
         int dny = root_ny - targets[i]->getY();
-        float norm2 = std::sqrt( std::pow(dnx, 2) + std::pow(dny, 2) );
+        float norm2 = std::sqrt( dnx*dnx + dny*dny );
         int weight2 = gain2 * norm2 * 10;
 
         // Step 3: Store the blended cost at this vertex's index
@@ -219,6 +270,42 @@ void Graph::calcWeight( float gain1 ) {
     }
 
 }
+
+/* Function calcWeightOMP( float gain1 )
+ * description:
+ * Same as above but parallelized with OpenMP
+ * inputs:
+ * float gain1 - blend factor (0..1); measured-position term weight (predicted term gets 1-gain1).
+ * returns:
+ * void - overwrites this graph's weights[] in place (parallel to targets[]).
+ */
+void Graph::calcWeightOMP( float gain1 ) {
+
+    float gain2 = 1.0 - gain1;
+
+    // Evaluate physical spacing between the root and every candidate detection in this graph
+    #pragma omp parallel for 
+    for (size_t i = 0; i < targets.size(); i++) {
+
+        // Step 1: Distance between the root's last measured position and this candidate
+        int dx = root_x - targets[i]->getX();
+        int dy = root_y - targets[i]->getY();
+        float norm1 = std::sqrt( dx*dx + dy*dy );
+        int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
+
+        // Step 2: Distance between the root's Kalman-predicted position (nx, ny) and this candidate
+        int dnx = root_nx - targets[i]->getX();
+        int dny = root_ny - targets[i]->getY();
+        float norm2 = std::sqrt( dnx*dnx + dny*dny );
+        int weight2 = gain2 * norm2 * 10;
+
+        // Step 3: Store the blended cost at this vertex's index
+        weights[i] = weight1 + weight2;
+
+    }
+
+}
+
 
 
 /* Function sortByWeight()

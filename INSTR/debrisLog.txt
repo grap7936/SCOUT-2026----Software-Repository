@@ -1,0 +1,1 @@
+motor_pos, id, x,y, kx,ky, vx,vy, score

@@ -2,23 +2,17 @@
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include <omp.h>
-#include <VmbCPP/VmbCPP.h> // Vimba X include
-#include "CameraWrapper.hpp"
-#include "KeyInput.hpp"
 #include "Graph.hpp"
 #include "Target.hpp"
 #include "Detector.hpp"
 #include "Selector.hpp"
 #include "Sentry.hpp"
+#include "KeyInput.hpp"
 #include "ArduinoSend.hpp"
 #include <unistd.h>  // For sleep() and usleep()
 #include <cstdlib> // For hasDisplay()
 
-using namespace VmbCPP;
-
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny);
-
-const int FPS = 79; // defined by user to match camera
 
 void setupArduino(ArduinoSend& sender);
 
@@ -53,8 +47,8 @@ int main() {
     Motor_Data << "frame_num, motor_pos\n";
     Motor_Data.close();
 
-    // Set up arduino connection
 
+    // Set up arduino connection
     // Define the serial port node. On a Raspberry Pi, an Arduino UNO typically populates as "/dev/ttyACM0" or "/dev/ttyACM1".
     std::string serial_port = "/dev/ttyACM0"; 
     
@@ -63,98 +57,69 @@ int main() {
     
     setupArduino(sender);
 
-    // Initialize camera
-    CameraWrapper cam;
+    // Start video capture
+    cv::VideoCapture cap("/home/scout/Desktop/INSTR/testing/fullTestVideo.mp4");
+    if (!cap.isOpened()) {
+        std::cerr << "Error: could not open video capture\n";
+        return -1;
+    }
 
     // set parallelization thread count
     omp_set_num_threads(4);
     cv::setNumThreads(1);
 
-    // Grab a real first frame and derive dimensions / channel count from it.
-    // Deriving from an actual frame (rather than getWidth()/getHeight() before
-    // any frame has arrived) guarantees the VideoWriter matches what we write.
-    cv::Mat first = cam.getFrame(5000);
-    if (first.empty()) {
-        std::cerr << "Error: no initial frame from camera. Exiting." << std::endl;
-        return -1;
+    // Retrieve camera frame dimensions and frame rate
+    int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+    int frame_height = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    double fps = cap.get(cv::CAP_PROP_FPS);
+    
+    // Fallback if the camera driver returns 0 for FPS
+    if (fps <= 0) { 
+        fps = 30.0; 
     }
-    int frame_width  = first.cols;
-    int frame_height = first.rows;
-    bool is_color    = (first.channels() == 3);
 
-    // only the diagnostic recording is downscaled.
-    int enc_width  = frame_width  / 2;
-    int enc_height = frame_height / 2;
+    // Define the codec using FourCC and initialize the VideoWriter
+    // 'mp4v' or 'avc1' are highly reliable for MP4 containers
+    int codec = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
+    cv::Size frame_size(frame_width, frame_height);
 
-    // Round to even — H.264 requires even dimensions in both axes.
-    enc_width  &= ~1;
-    enc_height &= ~1;
-
-    // Define video file output
-    cv::Size frame_size(enc_width, enc_height);
-
-    // Hardware-encoded pipeline using the Orin's NVENC block via GStreamer.
-    // appsrc         -> receives frames from writer.write()
-    // videoconvert   -> BGR (what OpenCV hands over) to a format nvvidconv accepts
-    // x264enc  -> the actual hardware H.264 encoder
-    // speed-preset/tune -> performance speedups
-    // key-int-max, bframes, ref -> recommended tuning
-    // h264parse/qtmux -> wrap the stream into an .mp4 container
-    // Encode at half resolution. findDebris() still runs on the full-res frame;
-    std::string gst_pipeline =
-        "appsrc ! videoconvert ! "
-        "nvvidconv ! video/x-raw(memory:NVMM),width=" + std::to_string(enc_width) +
-        ",height=" + std::to_string(enc_height) + " ! "
-        "nvvidconv ! video/x-raw,format=I420 ! "
-        "x264enc speed-preset=ultrafast tune=zerolatency "
-        "bitrate=4000 key-int-max=30 bframes=0 ref=1 aud=false ! "
-        "h264parse ! qtmux ! filesink location=" + VIDEO_FILENAME;
-
-    // NOTE: 4th arg is cv::CAP_GSTREAMER, telling OpenCV to treat the string
-    // as a pipeline rather than a filename. FPS must match your capture rate.
-    cv::VideoWriter writer(gst_pipeline, cv::CAP_GSTREAMER, 0, FPS, frame_size, is_color);
+    cv::VideoWriter writer(VIDEO_FILENAME, codec, fps, frame_size, true);
     if (!writer.isOpened()) {
-        std::cerr << "Error: Could not open the GStreamer/NVENC video writer." << std::endl;
+        std::cerr << "Error: Could not open the video writer." << std::endl;
         return -1;
     }
 
     Sentry sentry;
-    int timeout = 2000; //ms
 
-    // Non-blocking terminal input: press 'q' (or ESC) to quit. Works whether
-    // or not a display is attached (main can run headless on the Jetson).
+    // Non-blocking terminal input: press 'q' (or ESC) to quit.
     KeyInput keys;
-    std::cout << "DebrisTracking running. Press 'q' to quit." << std::endl;
-
+    std::cout << "fullTest running. Press 'q' to quit." << std::endl;
+    
     // open file write streams
     Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
     Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
     All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app);
-    
 
     int debris_id = -1;
     cv::Mat frame;
+    long long fid = 0;
     while (true) {
-        // Synchronously fetch exactly one frame from the camera stream (2000ms timeout)
-        frame = cam.getFrame(timeout);
-
-        if ( frame.empty() ) {
-            // null return from getFrame() meaning no frame captured
-            break;
+        // read frame
+        if (!cap.read(frame)) {
+            break; // exit on failure / end of stream
         }
-        
+
         // read motor position
         std::vector<double> raw = sender.readMotorPosition(Motor_Data);
         double m_pos = raw[1];
         double ard_frame_num = raw[0];
 
-        long long fid = cam.getFrameID();
         debris_id = sentry.findDebris(frame, debris_id, fid);
 
         if ( debris_id != -1 ){
             // write to file
             Target* current = (*sentry.getFullListPtr())[debris_id];
-            Debris_Data << fid << ", " << debris_id
+            Debris_Data << m_pos << ", " << debris_id
                     << ", " << current->getX() << "," << current->getY()
                     << ", " << current->getKx() << "," << current->getKy()
                     << ", " << current->getVx() << "," << current->getVy()
@@ -169,17 +134,18 @@ int main() {
 
         writer.write(frame);
 
+        fid++;
+
         // (optional) show the frame
-        // if (GUI) {
-        //     cv::imshow("Frame", frame);
-        //     cv::waitKey(1); // repaint the window; only meaningful with a display
-        // }
+        if (GUI) {
+            cv::imshow("Frame", frame);
+            cv::waitKey(1); // repaint the window; only meaningful with a display
+        }
 
         // Exit on 'q' typed into the launching terminal (works headless too)
         if (keys.quitPressed()) {
             break;
         }
-
     }
 
     // Close file write streams
@@ -189,9 +155,13 @@ int main() {
 
     // Close openCV stuffs
     writer.release(); // Finishes the MP4 container structure and flushes everything to disk
-    
+    cap.release();    // Properly releases the camera/video file handle
+
     return 0;
+
 }
+
+
 
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny) {
 
@@ -230,8 +200,9 @@ void setupArduino(ArduinoSend& sender) {
     sender.sendTargetCoordinates(0,0,-5);
 
     sender.flushCache();
-    sleep(1); 
+    sleep(1);
 
     std::cout << "[SYSTEM READY] Pipeline active. Ready for coordinate injection stream.\n" << std::endl;
 
+    
 }

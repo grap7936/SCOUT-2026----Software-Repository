@@ -45,6 +45,9 @@ Detector::Detector( int blur_size, int thresh_margin, int dilation_iter, int con
     end_calibration_period = 0;
     global_background_noise = 0.0;
     current_frame_num = 0;
+
+    // Build the GPU filter primitives once from the parameters set above.
+    initCudaFilters();
 }
 
 // Backup/Default Constructor (Equivalent to Python's __init__)
@@ -57,6 +60,37 @@ Detector::Detector() {
     end_calibration_period = 0;
     global_background_noise = 0.0;
     current_frame_num = 0;
+
+    // Build the GPU filter primitives once from the default parameters set above.
+    initCudaFilters();
+}
+
+
+/* Function initCudaFilters()
+ * description:
+ *  Constructs the reusable CUDA filter primitives (median blur + dilation) from the
+ *  current control parameters. Called once per Detector from each constructor so the
+ *  per-frame filter() path never has to (re)allocate these GPU objects.
+ *
+ *  Median blur: single-channel 8-bit input, window == BLUR_KERNEL_SIZE (must be odd
+ *  and >= 3; OpenCV enforces odd). Matches the CPU cv::medianBlur behavior.
+ *
+ *  Dilation: a 3x3 rectangular structuring element reproduces the CPU call
+ *  cv::dilate(..., cv::Mat(), cv::Point(-1,-1), DILATION_ITERATIONS), where an empty
+ *  cv::Mat() kernel defaults to a 3x3 rect with center anchor. iterations is baked in
+ *  here rather than passed per-call.
+ */
+void Detector::initCudaFilters() {
+
+    // Median blur operates on CV_8UC1 (grayscale). Window size must be odd; the
+    // constructors pass odd BLUR_KERNEL_SIZE values (default 5).
+    d_median_filter = cv::cuda::createMedianFilter(CV_8UC1, BLUR_KERNEL_SIZE);
+
+    // 3x3 rectangular structuring element with center anchor, applied
+    // DILATION_ITERATIONS times - equivalent to the empty-kernel CPU dilate.
+    cv::Mat dilate_kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+    d_dilate_filter = cv::cuda::createMorphologyFilter(
+        cv::MORPH_DILATE, CV_8UC1, dilate_kernel, cv::Point(-1, -1), DILATION_ITERATIONS);
 }
 
 // Member functions (same as described at the top of the code)
@@ -166,27 +200,34 @@ void Detector::startCalibration() {
 
 void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
+        cv::Mat mono, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
-        
-        cv::Mat fg_mask, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
-
-        // foregound mask that converts the background subtractor image to a non-colored background 
-        cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
+        if (frame.channels() == 1) {
+            mono = cv::Mat(frame);
+        } else if (frame.channels() >= 3) {
+            // foregound mask that converts the background subtractor image to a non-colored background 
+            cv::cvtColor(frame, mono, cv::COLOR_BGR2GRAY);
+        }
 
         // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-        cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
-
+        cv::medianBlur(mono, blur, BLUR_KERNEL_SIZE);
+        
         // // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
         // cv::threshold(blur, thresh_temp, 30, 255, cv::THRESH_BINARY);
 
         // Build an intensity histogram (0..255) by tallying how many pixels have each
         // grayscale value across the whole blurred frame.
         int histogram[256] = {0};
+        #pragma omp parallel for reduction(+:histogram[:256])
         for (int r = 0; r < blur.rows; r++) {
+            // One row-pointer lookup per row, then flat contiguous access across the row.
+            // Replaces per-pixel bounds-checked blur.at<>() with direct pointer indexing.
+            const unsigned char* pRow = blur.ptr<unsigned char>(r);
             for (int c = 0; c < blur.cols; c++) {
-                histogram[ blur.at<unsigned char>(r, c) ]++;
+                histogram[ pRow[c] ]++;
             }
         }
+        
 
         // The mode (most frequent intensity) is the dominant background level in a
         // mostly-empty frame - find the bin with the highest count.
@@ -227,42 +268,106 @@ Outputs:
 
 
 // Data type of return variable is cv::Mat which takes in an image, processing its pixels and outputs an a processed image
-cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an image matrix and we pass by reference so that no new copies of the image are created in storage which would lower frame rate
+// cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an image matrix and we pass by reference so that no new copies of the image are created in storage which would lower frame rate
 
 
-  // Makes a matrix/image output in 7 separate stages/objects which track the evolution of the image overtime through a "pipeline" of image processing steps.  These steps/stages are all used in the code later.
-  // Stages:
-  // 1.) fg_mask == the foreground mask which is created by applying the background subtractor to the blurred frame. This shows the moving objects in white and the background in black.
-  // 2.) blur == median blur is applied to the foreground mask to remove extraneous camera noise.
-  // 3.) thresh_temp == the thresholded version of the foreground mask which is created by applying a binary threshold to the foreground mask.  This is temporary and will be overwritten later when subtracting overall background noise 
-  // An arbitrary threshold helps forces all pixels to be either white (255) or black (0), which forces the foreground to be either completely white or completely black which makes it easier to detect contours.
-  // 4.) bg_mask == this background mask is created by inverting the colors of the temporarily thresholded image to be later applied onto the foreground mask and then subtracted off to the get the global noise level.
-  // 5.)
-  // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
-  // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
+//   // Makes a matrix/image output in 7 separate stages/objects which track the evolution of the image overtime through a "pipeline" of image processing steps.  These steps/stages are all used in the code later.
+//   // Stages:
+//   // 1.) fg_mask == the foreground mask which is created by applying the background subtractor to the blurred frame. This shows the moving objects in white and the background in black.
+//   // 2.) blur == median blur is applied to the foreground mask to remove extraneous camera noise.
+//   // 3.) thresh_temp == the thresholded version of the foreground mask which is created by applying a binary threshold to the foreground mask.  This is temporary and will be overwritten later when subtracting overall background noise 
+//   // An arbitrary threshold helps forces all pixels to be either white (255) or black (0), which forces the foreground to be either completely white or completely black which makes it easier to detect contours.
+//   // 4.) bg_mask == this background mask is created by inverting the colors of the temporarily thresholded image to be later applied onto the foreground mask and then subtracted off to the get the global noise level.
+//   // 5.)
+//   // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
+//   // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
   
-    cv::Mat fg_mask, blur, thresh_temp, bg_mask, thresh, dilated; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
+//     // GPU-accelerated pipeline (Jetson): the entire chain below runs on the device.
+//     // The frame is uploaded once at the top and only the final dilated mask is copied
+//     // back to the host. Intermediate stages never round-trip to CPU memory. All device
+//     // buffers (d_*) and the filter primitives (d_median_filter, d_dilate_filter) are
+//     // class members allocated/built once, so no per-frame GPU allocation happens here.
 
-    // foregound mask that converts the background subtractor image to a non-colored background 
-    cv::cvtColor(frame, fg_mask, cv::COLOR_BGR2GRAY);
+//     // Upload the raw frame to the device (host -> device). On Jetson's unified DRAM this
+//     // is cheap; it can later be made zero-copy with pinned/managed memory if desired.
+//     d_frame.upload(frame);
 
-    // Applies median Blur to foreground mask from last step (kernel size is 3 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-    cv::medianBlur(fg_mask, blur, BLUR_KERNEL_SIZE);
+//     // mono mask that converts the frame to single-channel grayscale
+//     if (frame.channels() == 1) {
+//         d_mono = d_frame;
+//     } else if (frame.channels() >= 3) {
+//         cv::cuda::cvtColor(d_frame, d_mono, cv::COLOR_BGR2GRAY);
+//     }
 
-    // Now subtract global background noise by 1st putting background noise into an array to subtract at each point -- use basic matrix subtraction
-    cv::Mat cleaned_blur = blur - cv::Scalar(global_background_noise);
+//     // Applies median Blur to the mono mask (kernel size == BLUR_KERNEL_SIZE). Uses the
+//     // pre-built CUDA median filter; higher kernel size means more overall blur.
+//     d_median_filter->apply(d_mono, d_blur);
 
-   // Apply final thresholding -- note this smaller binary thresholded value can be used here as the image has now had more noise/brightness removed from subtracting the background noise and so the threshold used should be slightly lower to detect the same objects as would be detected before.
-    cv::threshold(cleaned_blur, thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
+//     // Subtract the global background noise from every pixel (device-side scalar subtract).
+//     cv::cuda::subtract(d_blur, cv::Scalar(global_background_noise), d_cleaned);
 
+//     // Apply final binary thresholding on the device. Same semantics as the CPU
+//     // cv::threshold with THRESH_BINARY.
+//     cv::cuda::threshold(d_cleaned, d_thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
 
-    // Dilate the image
-    // thresh is passed in as this is the image being dilated; dilated stores the new dilated image as an object. 
-    // Dilation works by sliding a small matrix (a kernel) over the image. If the kernel hits a white pixel, it turns the surrounding pixels white. By passing an empty cv::Mat() as an input, the kernel defaults to a 3x3 rectangular element
-    // cv::Point(-1, -1) puts each kernel's anchor point (point relative to the current pixel being processed) in the center of each kernel (this is just a necessary input)
-    cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), DILATION_ITERATIONS);
+//     // Dilate the thresholded mask using the pre-built 3x3 morphology filter
+//     // (DILATION_ITERATIONS baked in at construction). Bridges small gaps in contours.
+//     d_dilate_filter->apply(d_thresh, d_dilated);
 
-    return dilated;
+//     // Copy only the final mask back to the host (device -> host) for CPU-side
+//     // findContours() in contours().
+//     cv::Mat dilated;
+//     d_dilated.download(dilated);
+
+//     return dilated;
+// }
+
+cv::Mat Detector::filter(const cv::Mat& frame) {
+
+    // Lazily allocate the shared buffers once we know the frame geometry.
+    // Reused every subsequent frame -> zero per-frame allocation.
+    if (!shared_bufs_ready ||
+        h_frame_shared.size() != frame.size() ||
+        h_frame_shared.type() != frame.type()) {
+        h_frame_shared   = cv::cuda::HostMem(frame.size(), frame.type(),
+                                             cv::cuda::HostMem::SHARED);
+        h_dilated_shared = cv::cuda::HostMem(frame.size(), CV_8UC1,
+                                             cv::cuda::HostMem::SHARED);
+        shared_bufs_ready = true;
+    }
+
+    // Copy the incoming frame into the shared host view ONCE. After this, the
+    // device sees the same bytes with no upload. (See note below about removing
+    // even this copy at the camera boundary.)
+    frame.copyTo(h_frame_shared.createMatHeader());
+
+    // Device views onto the shared buffers -- these are handles, not copies.
+    cv::cuda::GpuMat d_in  = h_frame_shared.createGpuMatHeader();
+    cv::cuda::GpuMat d_out = h_dilated_shared.createGpuMatHeader();
+
+    // Grayscale (skip if already mono).
+    if (frame.channels() == 1) {
+        d_mono = d_in;
+    } else {
+        cv::cuda::cvtColor(d_in, d_mono, cv::COLOR_BGR2GRAY);
+    }
+
+    d_median_filter->apply(d_mono, d_blur);
+    cv::cuda::subtract(d_blur, cv::Scalar(global_background_noise), d_cleaned);
+    cv::cuda::threshold(d_cleaned, d_thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
+
+    // Dilate straight into the shared output buffer. No download needed --
+    // the host view is already valid once the stream syncs.
+    d_dilate_filter->apply(d_thresh, d_out);
+
+    // The shared/mapped path does NOT implicitly sync the way download() did.
+    // Force the device work to finish before the host reads the buffer.
+    cv::cuda::Stream::Null().waitForCompletion();
+
+    // Clone into a caller-owned Mat. findContours() modifies its input in place
+    // and the next frame's filter() reuses h_dilated_shared, so the caller must
+    // NOT hold a bare header into the shared buffer.
+    return h_dilated_shared.createMatHeader().clone();
 }
 
 // contours() member function
@@ -285,7 +390,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
 
     // Note: In C++ in order to return 2 variables by a function as is done in the python script before this you must use std::pair, or by passing references.
     
-std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::contours(cv::Mat& frame, const cv::Mat& dilated) {
+std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::contours(const cv::Mat& dilated) {
     
 
     std::vector<std::vector<cv::Point>> contours_list; // cv::Point represents a point in 2D with x and y coordinates. This is put into a vector to represent a contour which is a collection of points that form the outline of a moving object. This is then put into another vector to represent all the contours in the frame.
@@ -345,8 +450,70 @@ Outputs:
 
 */
 
+// Computes centroid of a rectangle defined by (x,y,w,h) from the input frame
+// Precondition: `mono` is single-channel CV_8UC1. Caller converts once
+// (in scan()) rather than this running per-contour.
+std::vector<float> Detector::computeCentroid(const cv::Mat& mono, int x, int y, int w, int h) {
+    if (mono.empty()) {
+        return {0.0, 0.0};
+    }
+
+    // Clamp the ROI to the image boundaries
+    int startX = std::max(0, x);
+    int startY = std::max(0, y);
+
+    int endX = std::min(mono.cols, x + w);
+    int endY = std::min(mono.rows, y + h);
+
+    float sumI = 0.0;
+    float sumX = 0.0;
+    float sumY = 0.0;
+
+    for (int row = startY; row < endY; ++row)
+    {
+        const uint8_t* pRow = mono.ptr<uint8_t>(row);
+
+        for (int col = startX; col < endX; ++col)
+        {
+            float I = static_cast<float>(pRow[col]);
+
+            sumI += I;
+            sumX += col * I;
+            sumY += row * I;
+        }
+    }
+
+    // If there is no intensity in the ROI, return its center
+    if (sumI <= 0.0)
+    {
+        float tempX = startX + (endX - startX) / 2.0;
+        float tempY = startY + (endY - startY) / 2.0;
+        return
+        {
+            tempX,
+            tempY
+        };
+    }
+
+    return
+    {
+        sumX / sumI,
+        sumY / sumI
+    };
+}
+
 
 void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num) {
+
+    // Convert the frame to grayscale a SINGLE time before the parallel loop.
+    // If the camera is Mono8 this is a no-op shallow reference; if color, one
+    // conversion for the whole frame instead of one per contour.
+    cv::Mat mono_frame;
+    if (frame.channels() == 1) {
+        mono_frame = frame;
+    } else {
+        cv::cvtColor(frame, mono_frame, cv::COLOR_BGR2GRAY);
+    }
 
     // initializer for the calibration process
     if (frame_num == 0) {
@@ -357,80 +524,37 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
     // Call the calibrate background noise function if the current frame number is less than the end_calibration_period limit
 
     if (frame_num < end_calibration_period) {
-        calibrateBackgroundNoise(frame);
+        calibrateBackgroundNoise(mono_frame);
     }
     
 
     // Call filter() function for passed in frame
-    cv::Mat frame_dilated = filter(frame);
+    cv::Mat frame_dilated = filter(mono_frame);
 
     // Call contours() to get contours_list as well as each box dimensions struct for each contour (variables must be extracted from here)
-    auto [contours_list, box_dims] = contours(frame, frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
+    auto [contours_list, box_dims] = contours(frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
 
     // Loop through all box dimensions for each different contour identified to extract x and y centroid position and size for input into each target instance
-    for (const auto& box : box_dims) { 
+    int size = box_dims.size();
+    targets.resize(size);
+    #pragma omp parallel for
+    for (int i = 0; i < size; i++) { 
+
+        auto& box = box_dims[i];
 
         // define centroid position. Note that each default x and y position is at the top left corner of a given object. 
         // By adding width/2 and height/2 of the given bounding box to the x and y dimensions (situated in the upper left corner) 
         // we center each x and y position in the center/centroid of each box
 
-        int x_centr_pos = box.x + (box.w / 2); 
-        int y_centr_pos = box.y + (box.h / 2);
-        // ***@@@!!! Replace with future centroid(box) function that returns (x,y) of brightest pixel -------------------------------------------------------------------------------------------------------------------------------------------------------
+        // int x_centr_pos = box.x + (box.w / 2); 
+        // int y_centr_pos = box.y + (box.h / 2);
+        std::vector<float> centroid = computeCentroid(mono_frame, box.x, box.y, box.w, box.h);
 
         // Construct new instance of target. Unassigned values default to std::nullopt as defined in the target class (this is basically the same as assigning to NONE equivalently in Python)
-        Target* new_target = new Target(x_centr_pos, y_centr_pos, box.size);
+        Target* new_target = new Target(centroid[0], centroid[1], box.size);
         new_target->setFrameNum(current_frame_num);
 
-        targets.push_back(new_target); // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
+        targets[i] = new_target; // push_back works the same as the append function in Python and puts each new target at the end of the dynamically changing array/vector that targets is initialzied as
     }
 
 }
-
-
-
-
-// ***************************************** Look at this example filter code for tomorrow to see if the filtering method needs to be changed 
-// or altered to this new method -- or test functionality of this program compared to the current filter version to see if it eliminates the "brightness" problem
-
-
-
-// cv::Mat Detector::filter(const cv::Mat& frame) {
-
-//     // 1. Convert current frame to grayscale
-//     cv::Mat current_gray, last_gray_frame, fg_mask, blur, thresh, dilated; // initialize matrices to store frame data
-//     cv::cvtColor(frame, current_gray, cv::COLOR_BGR2GRAY); // convert the active frame input's background to grayscale/monochrome
-
-//     // 2. Handle the very first frame edge-case
-//     if (last_gray_frame.empty()) {
-//         last_gray_frame = current_gray.clone(); // sets the last_frame to a gray frame in the case that there is no previous frame (only for the 1st frame read in)
-//         // Return an empty matrix because we don't have a baseline comparison yet
-//         return cv::Mat::zeros(frame.size(), CV_8UC1); 
-//     }
-
-//     // 3. True Temporal Background Subtraction -- note that background subtraction differs from the previous filtering method in that it analyzes multiple frames
-//     // and can subtract stationary stars to see where an object is if there is one distinct object moving across a frame.
-//     cv::absdiff(current_gray, last_gray_frame, fg_mask);
-
-//     // Update the history baseline for the NEXT frame execution
-//     last_gray_frame = current_gray.clone(); // stores the current iteration of the frame into the last_gray_frame item and then current_gray_frame will be overwritten
-//                                             // as the filter function reads in each subsequent frame input.
-
-//     // Apply Median Blur to the isolated foreground mask
-//     cv::medianBlur(fg_mask, blur, 5);
-
-//     // 5. Calculate Local Noise Level dynamically 
-//     // Now, cv::mean only calculates the leftover sensor noise floor, 
-//     // entirely unaffected by bright stars or blooming targets.
-//     double global_background_noise = cv::mean(blur)[0]; 
-
-//     // 6. Final Thresholding
-//     // Standardize your threshold ceiling now that the background is completely flattened
-//     cv::threshold(blur, thresh, 15 + global_background_noise, 255, cv::THRESH_BINARY);
-
-//     // 7. Dilate to bridge tracking structural gaps
-//     cv::dilate(thresh, dilated, cv::Mat(), cv::Point(-1, -1), 2);
-
-//     return dilated;
-// }
-
