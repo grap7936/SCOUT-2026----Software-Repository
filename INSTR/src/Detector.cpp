@@ -352,8 +352,8 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
         cv::cuda::cvtColor(d_in, d_mono, cv::COLOR_BGR2GRAY);
     }
 
-    d_median_filter->apply(d_mono, d_blur);
-    cv::cuda::subtract(d_blur, cv::Scalar(global_background_noise), d_cleaned);
+    //d_median_filter->apply(d_mono, d_blur); too slow for real-time
+    cv::cuda::subtract(d_mono, cv::Scalar(global_background_noise), d_cleaned);
     cv::cuda::threshold(d_cleaned, d_thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
 
     // Dilate straight into the shared output buffer. No download needed --

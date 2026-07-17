@@ -26,7 +26,7 @@ static const bool GUI = hasDisplay();
 int main() {
 
     // Set up data output files
-    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.mp4";
+    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.ts";
     std::string MOTOR_LOG_FILENAME = "/home/scout/Desktop/INSTR/motorLog.txt";
     std::string DEBRIS_LOG_FILENAME = "/home/scout/Desktop/INSTR/debrisLog.txt";
     std::string TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
@@ -98,7 +98,7 @@ int main() {
     // open file write streams
     Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
     Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
-    All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app);
+    //All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app); handled in Sentry.cpp writeToFile()
 
     int debris_id = -1;
     cv::Mat frame;
@@ -150,7 +150,7 @@ int main() {
 
     // Close file write streams
     Motor_Data.close();
-    All_Target_Data.close();
+    //All_Target_Data.close(); handled in Sentry.cpp writeToFile()
     Debris_Data.close();
 
     // Close openCV stuffs

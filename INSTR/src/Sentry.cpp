@@ -386,24 +386,14 @@ void Sentry::writeTargetsToFile(std::vector<Target*> target_list, std::string fi
     // Define output stream -- preallocate
     std::ofstream Saved_Target_Data; 
 
-    // If this is the FIRST time data is being saved, then: Define output stream -- txt file to write target pointer list data
-    if (is_first_save == true)
-        {
-        Saved_Target_Data.open(filename); // opens/creates necessary text file for inputting data into
-        is_first_save = false; // set is_first_save parameter to false so that every subsequent time this function is called it appends data and doesn't create any new text file to write into
-        Saved_Target_Data << "id, x,y, kx,ky, vx,vy, score\n";
-        }
-    else 
-        {
-        Saved_Target_Data.open(filename, std::ios::app); // append data to the text file
-        }
+    Saved_Target_Data.open(filename, std::ios::app); // append data to the text file
 
-        // Test if stream operation failed
-        if (Saved_Target_Data.fail()) 
-            {
-                std::cout << "Error opening the input file."; 
-                return;
-            }
+    // Test if stream operation failed
+    if (Saved_Target_Data.fail()) 
+        {
+            std::cout << "Error opening the input file."; 
+            return;
+        }
 
     // Write Target data to created text file by looping through all entries -- uses range based for loop
     for (Target* target : target_list)
@@ -491,6 +481,6 @@ void Sentry::dumpOldTargets(int cutoff_index)  {
     // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
     target_debris_count.erase(target_debris_count.begin(), target_debris_count.begin()+cutoff_index);
 
-
+    selector.setTargetListOffset( selector.getTargetListOffset - cutoff_index );
 
 }
