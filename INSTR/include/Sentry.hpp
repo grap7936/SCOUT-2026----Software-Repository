@@ -34,9 +34,7 @@ private:
     
 
     long long int current_frame_number;
-    bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
-                               // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
-                               // function to False for every subsequent case.
+    
     // cv::Mat prev_frame;
     // cv::Mat next_frame;
     std::vector<Target*> full_target_list;

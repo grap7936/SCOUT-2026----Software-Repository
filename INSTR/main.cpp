@@ -32,7 +32,7 @@ static const bool GUI = hasDisplay();
 int main() {
 
     // Set up data output files
-    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.mp4";
+    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.ts";
     std::string MOTOR_LOG_FILENAME = "/home/scout/Desktop/INSTR/motorLog.txt";
     std::string DEBRIS_LOG_FILENAME = "/home/scout/Desktop/INSTR/debrisLog.txt";
     std::string TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
@@ -114,7 +114,7 @@ int main() {
     // as a pipeline rather than a filename. FPS must match your capture rate.
     cv::VideoWriter writer(gst_pipeline, cv::CAP_GSTREAMER, 0, FPS, frame_size, is_color);
     if (!writer.isOpened()) {
-        std::cerr << "Error: Could not open the GStreamer/NVENC video writer." << std::endl;
+        std::cerr << "Error: Could not open the GStreamer video writer." << std::endl;
         return -1;
     }
 
@@ -129,7 +129,7 @@ int main() {
     // open file write streams
     Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
     Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
-    All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app);
+    //All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app); opened in WriteToFile() in Sentry.cpp
     
 
     int debris_id = -1;
@@ -146,9 +146,15 @@ int main() {
         // read motor position
         std::vector<double> raw = sender.readMotorPosition(Motor_Data);
         double m_pos = raw[1];
-        double ard_frame_num = raw[0];
+        int ard_frame_num = static_cast<int>(raw[0]);
 
         long long fid = cam.getFrameID();
+
+        long long gap = fid - ard_frame_num;
+
+        std::cout << "Frame ID gap: " << gap << std::endl;
+
+
         debris_id = sentry.findDebris(frame, debris_id, fid);
 
         if ( debris_id != -1 ){
@@ -184,7 +190,7 @@ int main() {
 
     // Close file write streams
     Motor_Data.close();
-    All_Target_Data.close();
+    //All_Target_Data.close(); handled fully in Sentry.cpp
     Debris_Data.close();
 
     // Close openCV stuffs

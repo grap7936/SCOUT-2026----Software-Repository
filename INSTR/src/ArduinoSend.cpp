@@ -320,9 +320,9 @@ void ArduinoSend::logTelemetry(std::ofstream& logFile, int frameNum, double moto
 
     //  Organizes variables into a clean structural column layout based on the data type source
     if (isMotorTest) {
-        logFile << "Type: MOTOR_TEST, Frame: N/A, Position: " << motorPos << "\n";
+        logFile << "-1, " << motorPos << "\n";
     } else {
-        logFile << "Type: TRACKING, Frame: " << frameNum << ", Position: " << motorPos << "\n";
+        logFile << frameNum << ", " << motorPos << "\n";
     }
 
     // Flushes the stream immediately so data hits your disk without waiting for cache boundaries
