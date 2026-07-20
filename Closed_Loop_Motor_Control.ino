@@ -11,6 +11,12 @@ struct PID {
 const int ENCODER_PIN = 3;   // PWM encoder signal (White wire)
 const uint8_t SLEEP_PIN = 7; // Sleep pin to control driver power state
 
+// --- Control Settings ---
+// Adjusted accuracy window to 0.015 rad (~0.85°) to prevent stiction grinding
+const float ANGLE_THRESHOLD_RAD = 0.015; 
+// Velocity threshold left exactly as it was original
+const float VELOCITY_THRESHOLD_RAD_S = 0.1; 
+
 // --- SimpleFOC Setup ---
 BLDCDriver3PWM driver = BLDCDriver3PWM(9, 10, 11, 8);
 BLDCMotor motor = BLDCMotor(11); 
@@ -20,6 +26,11 @@ void doPWM(){ sensor.handlePWM(); }
 // --- Global Control Variables ---
 float target_angle_radians = 0.0;
 unsigned long last_time = 0;
+
+// --- Performance Tracking Variables ---
+bool trackingActive = false;
+unsigned long movementStartTime = 0;
+float movementStartAngle = 0.0;
 
 // Instantiate your custom PID struct
 struct PID motor_pid;
@@ -52,9 +63,9 @@ float PID_Step(struct PID *pid, float measurement, float setpoint) {
 void setup() {
   Serial.begin(115200);
 
-  // 1. Configure Sleep Pin to keep the driver awake
+  // 1. Configure Sleep Pin
   pinMode(SLEEP_PIN, OUTPUT);
-  digitalWrite(SLEEP_PIN, HIGH); // HIGH disables sleep mode (turns driver ON)
+  digitalWrite(SLEEP_PIN, HIGH); // Keep awake during initial calibration
 
   // 2. Initialize Sensor
   sensor.init();
@@ -102,9 +113,49 @@ void loop() {
   sensor.update();  
   motor.loopFOC();  
 
-  // --- 3. Run Your Custom PID Loop ---
-  float control_voltage = PID_Step(&motor_pid, motor.shaft_angle, target_angle_radians);
-  motor.move(control_voltage);
+  // --- 3. Run Your Custom PID Loop & Dynamic Power Management ---
+  float angle_error = abs(target_angle_radians - motor.shaft_angle);
+  float current_velocity = abs(sensor.getVelocity()); 
+
+  // WAKE UP if we are outside the target window OR if the motor is still actively moving
+  if (angle_error > ANGLE_THRESHOLD_RAD || current_velocity > VELOCITY_THRESHOLD_RAD_S) {
+    // MOTOR SHOULD MOVE: Wake up driver and apply custom PID calculations
+    digitalWrite(SLEEP_PIN, HIGH); 
+    
+    float control_voltage = PID_Step(&motor_pid, motor.shaft_angle, target_angle_radians);
+    motor.move(control_voltage);
+  } 
+  else {
+    // MOTOR IS AT TARGET AND STOPPED: Sleep safely
+    digitalWrite(SLEEP_PIN, LOW); 
+    motor.move(0); 
+    
+    // Check if we just arrived from an active tracking target command
+    if (trackingActive) {
+      unsigned long arrivalTime = micros();
+      float timeElapsedSeconds = (arrivalTime - movementStartTime) / 1000000.0;
+      
+      Serial.println(F("\n--- Target Reached ---"));
+      Serial.print(F("Arrived at: ")); 
+      Serial.print(motor.shaft_angle * (180.0 / PI)); Serial.println(F("°"));
+      
+      Serial.print(F("Starting Position: ")); 
+      Serial.print(movementStartAngle); Serial.println(F("°"));
+      
+      Serial.print(F("Time: ")); 
+      Serial.print(timeElapsedSeconds, 4); Serial.println(F(" seconds"));
+      Serial.println(F("----------------------"));
+      
+      trackingActive = false; 
+    }
+    
+    // Completely clear integral history to kill windup instantly
+    motor_pid.integral = 0;
+    motor_pid.command_prev = 0;
+    motor_pid.command_sat_prev = 0;
+    motor_pid.err_prev = 0;
+    motor_pid.deriv_prev = 0;
+  }
 
   // --- 4. Robust Serial Command Parser ---
   if (Serial.available() > 0) {
@@ -112,14 +163,22 @@ void loop() {
     
     // Check if the incoming byte is a digit, minus sign, or decimal point
     if ((peekChar >= '0' && peekChar <= '9') || peekChar == '-' || peekChar == '.') {
+      
+      // Grab quiet absolute position data before triggering target adjustments
+      sensor.update();
+      movementStartAngle = sensor.getAngle() * (180.0 / PI); 
+      
       float target_degrees = Serial.parseFloat();
       target_angle_radians = target_degrees * (PI / 180.0);
       
-      Serial.print(F("New Target: "));
+      movementStartTime = micros();
+      trackingActive = true; 
+      
+      Serial.print(F("\nNew Target set to: "));
       Serial.print(target_degrees);
       Serial.println(F("°"));
     } else {
-      // It's a newline (\n), carriage return (\r), or space. Strip it and move on.
+      // Strip out whitespace/newlines safely
       Serial.read(); 
     }
   }
