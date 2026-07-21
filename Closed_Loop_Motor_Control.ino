@@ -79,7 +79,7 @@ void setup() {
 
   // 4. Initialize Custom PID Parameters
   // { Kp, Ki, Kd, Kaw, T_C, T, max (volts), min (volts), max_rate (slew), structural zeros... }
-  motor_pid = { 4.5, 1.2, 0.05, 0.3, 0.01, 0.001, 3.0, -3.0, 100.0, 0, 0, 0, 0, 0 };
+  motor_pid = { 4.5, 1.2, 0.05, 0.3, 0.01, 0.001, 3.0, -3.0, 50.0, 0, 0, 0, 0, 0 };
 
   // 5. Configure SimpleFOC to receive raw Voltage/Torque commands from our PID
   motor.voltage_limit = 3.0; 
