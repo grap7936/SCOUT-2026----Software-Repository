@@ -43,6 +43,7 @@ Last Updated: 7/22/2026
 volatile float CURRENT_MOTOR_POS = 0.0;
 volatile int FRAME_NUM = 0; // Frame number counter starting from when the camera begins sending and processing data each time after an interrupt -- initialized to 0 for the time being, this will be changed later in the code.
 extern float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
+const float GEAR_RATIO = 3.2; // revolution ratio between motor and gimbal
 
 // --- Hardware Pins ---
 const int ENCODER_PIN = 3;   // PWM encoder signal (White wire) -- singular interrupt pin
@@ -231,8 +232,8 @@ void setup() {
   motor.linkSensor(&sensor); // Directly pairs your motor math object with the physical driver instance configured on pins 11, 10, 9, and 8.
   
   // Initialize Custom PID Parameters and Configure SimpleFOC for Voltage/Torque limits
-  motor_pid = { 4.5, 1.2, 0.05, 0.3, 0.01, 0.001, 3.0, -3.0, 100.0, 0, 0, 0, 0, 0 };
-  motor.voltage_limit = 3.0; 
+  motor_pid = { 3.0f, 0.0f, 0.02f, 0.0f, 0.01, 0.001, 3.0, -3.0, 100.0, 0, 0, 0, 0, 0 };
+  motor.voltage_limit = 6.0; 
   motor.controller = MotionControlType::torque; 
   motor.torque_controller = TorqueControlType::voltage;
 
@@ -381,7 +382,7 @@ void loop() {
                                                                      // in angle mode, this allows the system to actively hold the motor position while transitioning to tracking mode so that when torque mode
                                                                      // enagages, voltage inputs can be used effectively.
                         motor_target_angle = 0.0;
-
+                        FRAME_NUM = 0;
                         // Primes the tracking variables immediately when the system switches from Testing Mode to Tracking Mode
                         // Ensures that the very first live tracking maneuver correctly calculates its elapsed time and start angle without using leftover data from testing modes.
                         movementActive = true; 
@@ -410,9 +411,9 @@ void loop() {
     // Wrapped in if(testModeActive) so the general motor.move() doesn't overwrite the tracking voltage command
     if (testModeActive) {
         if (motor.controller == MotionControlType::velocity) {
-            motor.move(motor_target_velocity);
+            motor.move(GEAR_RATIO * motor_target_velocity);
         } else {
-            motor.move(motor_target_angle);
+            motor.move(GEAR_RATIO * motor_target_angle);
         }
     }
 
@@ -429,6 +430,6 @@ void loop() {
     // 3. Tracking mode is active (!testModeActive)
     // 4. It was actually a tracking coordinate packet (y >= 0)
     if (Data_Package.hasNewData && !sentMotorTelemetry && !testModeActive && Data_Package.y >= -1) {
-        ArduinoReceive.write(FRAME_NUM, CURRENT_MOTOR_POS);
+        ArduinoReceive.write(FRAME_NUM, GEAR_RATIO * CURRENT_MOTOR_POS);
     }
 }

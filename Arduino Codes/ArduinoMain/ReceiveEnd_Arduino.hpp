@@ -95,4 +95,3 @@ public:
 extern ArduinoReceiveClass ArduinoReceive;
 
 #endif
-

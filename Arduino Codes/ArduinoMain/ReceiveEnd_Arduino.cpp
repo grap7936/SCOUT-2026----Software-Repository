@@ -173,7 +173,7 @@ void ArduinoReceiveClass::motor_test() {
     motor.controller = MotionControlType::angle; // set to angle control mode
     motor_target_angle = motor.shaft_angle + (2 * PI); // move forward the current motor angle one rotation (360 degrees forward)
     
-    delay(10); // Let the motor settle slightly
+    //delay(10); // Let the motor settle slightly
 
     Serial.print(FRAME_NUM); // Accesses the current frame number
     Serial.print(",");
@@ -352,7 +352,3 @@ float ArduinoReceiveClass::getRadDiff(float Frame_width_px, float Frame_width_ra
     return rad_diff;
 
 };
-
-
-
-
