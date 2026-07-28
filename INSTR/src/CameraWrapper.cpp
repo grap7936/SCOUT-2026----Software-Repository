@@ -8,6 +8,8 @@ FrameObserver::FrameObserver(CameraPtr camera)
     : IFrameObserver(camera) {}
 
 void FrameObserver::FrameReceived(const FramePtr pFrame) {
+    // check if camera is mid-shutdown
+    if (m_stopping.load()) {return;}
     VmbFrameStatusType status = VmbFrameStatusIncomplete;
 
     if (pFrame->GetReceiveStatus(status) == VmbErrorSuccess &&
@@ -44,10 +46,12 @@ void FrameObserver::FrameReceived(const FramePtr pFrame) {
         // ... pixel conversion ...
         if (!converted.empty()) {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_latest    = converted;
-            m_latest_id = frameID;
-            m_hasNew    = true;
-            m_cv.notify_one();
+            if (frameID != m_latest_id) {     // only accept strictly newer frames
+                m_latest = converted;
+                m_latest_id = frameID;
+                m_hasNew = true;
+                m_cv.notify_one();
+            }
         }
     }
 
@@ -71,8 +75,10 @@ cv::Mat FrameObserver::waitForFrame(int timeout_ms, VmbUint64_t& out_id) {
 // ==========================================================================
 // CameraWrapper
 // ==========================================================================
-CameraWrapper::CameraWrapper() {
+CameraWrapper::CameraWrapper(float fps) {
     IS_RUNNING = false;
+
+    FPS = fps;
 
     if (SYSTEM.Startup() != VmbErrorSuccess) {
         std::cerr << "Error: Could not start VmbSystem\n";
@@ -124,6 +130,7 @@ CameraWrapper::CameraWrapper() {
 
 CameraWrapper::~CameraWrapper() {
     stopStream();
+    OBSERVER = nullptr;
     if (CAMERA) { CAMERA->Close(); }
     SYSTEM.Shutdown();
     IS_RUNNING = false;
@@ -131,24 +138,69 @@ CameraWrapper::~CameraWrapper() {
 
 bool CameraWrapper::configureCamera() {
     FeaturePtr feat;
+    VmbErrorType err;
 
     // --- Force a known pixel format so behaviour is deterministic across runs.
     // Try Mono8 (this is the "…U-510m" monochrome sensor). If you are on a
     // colour unit, set VmbPixelFormatBgr8 or Rgb8 here instead.
     if (CAMERA->GetFeatureByName("PixelFormat", feat) == VmbErrorSuccess) {
-        if (feat->SetValue("Mono8") != VmbErrorSuccess) {
-            std::cerr << "Warn: could not set PixelFormat to Mono8\n";
+        err = feat->SetValue("Mono8");
+        if (err != VmbErrorSuccess) {
+            std::cerr << "SetValue(PixelFormat, Mono8) failed, code=" << err << "\n";
+            // dump what IS allowed:
+            std::vector<std::string> opts;
+            if (feat->GetValues(opts) == VmbErrorSuccess) {
+                std::cerr << "Valid PixelFormat values:\n";
+                for (auto& o : opts) std::cerr << "  " << o << "\n";
+            }
+            std::string cur; feat->GetValue(cur);
+            std::cerr << "Current PixelFormat: " << cur << "\n";
         }
     }
 
+    // Ensure USB link throughput is not limited
+    if (CAMERA->GetFeatureByName("DeviceLinkThroughputLimitMode", feat) == VmbErrorSuccess) feat->SetValue("Off");
+
     // --- Gain
+    float gn = 30.0;
+    if (CAMERA->GetFeatureByName("GainAuto", feat) == VmbErrorSuccess) feat->SetValue("Off");
     if (CAMERA->GetFeatureByName("Gain", feat) == VmbErrorSuccess) {
-        feat->SetValue(30.0);
+        feat->SetValue(gn);
+    }
+
+    // --- FPS
+    // Enable manual frame-rate control FIRST, then set it. Try SFNC name, fall back to legacy.
+    if (CAMERA->GetFeatureByName("AcquisitionFrameRateEnable", feat) == VmbErrorSuccess) {
+        feat->SetValue(true);
+    }
+    bool fps_set = false;
+    if (CAMERA->GetFeatureByName("AcquisitionFrameRate", feat) == VmbErrorSuccess) {
+        err = feat->SetValue((double)FPS);
+        if (err != VmbErrorSuccess) {
+            std::cerr << "SetValue(AcquisitionFrameRate) failed, code=" << err << "\n";
+            // also read the legal range:
+            double vmin=0, vmax=0;
+            feat->GetRange(vmin, vmax);
+            std::cerr << "  legal range: " << vmin << " to " << vmax << ", tried " << FPS << "\n";
+        } else { fps_set = true; }
+    } 
+    if (!fps_set && CAMERA->GetFeatureByName("AcquisitionFrameRateAbs", feat) == VmbErrorSuccess) {
+        if (feat->SetValue((double)FPS) == VmbErrorSuccess) fps_set = true;   // legacy fallback
+    }
+    if (!fps_set) {
+        std::cerr << "Warn: could not set frame rate — camera will free-run at max!\n";
+    }
+    // Read back what actually stuck, so you KNOW:
+    if (CAMERA->GetFeatureByName("AcquisitionFrameRate", feat) == VmbErrorSuccess) {
+        double actual = 0; feat->GetValue(actual);
+        std::cerr << "Frame rate set to " << actual << " fps\n";
     }
 
     // --- Exposure
+    float exp = 10000; // 10 ms
+    if (CAMERA->GetFeatureByName("ExposureAuto", feat) == VmbErrorSuccess) feat->SetValue("Off");
     if (CAMERA->GetFeatureByName("ExposureTime", feat) == VmbErrorSuccess) {
-        feat->SetValue(12659.0);
+        feat->SetValue(exp); 
     }
 
     // --- Cache the frame dimensions up front so getWidth()/getHeight() are
@@ -189,7 +241,7 @@ bool CameraWrapper::startStream() {
     OBS_RAW  = obs;                        // non-owning handle for waitForFrame()
     OBSERVER = IFrameObserverPtr(obs);     // SDK takes ownership via shared ptr
     // 3 buffers is the documented minimum for smooth continuous capture.
-    if (CAMERA->StartContinuousImageAcquisition(3, OBSERVER) != VmbErrorSuccess) {
+    if (CAMERA->StartContinuousImageAcquisition(10, OBSERVER) != VmbErrorSuccess) {
         std::cerr << "Error: could not start continuous acquisition\n";
         OBS_RAW = nullptr;
         return false;
@@ -200,8 +252,9 @@ bool CameraWrapper::startStream() {
 
 void CameraWrapper::stopStream() {
     if (STREAMING && CAMERA) {
-        CAMERA->StopContinuousImageAcquisition();
+        if (OBS_RAW) OBS_RAW->requestStop();
         STREAMING = false;
+        CAMERA->StopContinuousImageAcquisition();
     }
     OBS_RAW = nullptr;   // owning IFrameObserverPtr still holds the object
 }

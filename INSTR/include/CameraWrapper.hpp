@@ -5,6 +5,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <mutex>
+#include <atomic>
 #include <condition_variable>
 
 using namespace VmbCPP;
@@ -27,12 +28,15 @@ public:
     // Blocks up to timeout_ms for a fresh frame. Returns empty Mat on timeout.
     cv::Mat waitForFrame(int timeout_ms, VmbUint64_t& out_id);
 
+    void requestStop() { m_stopping.store(true); }
+
 private:
     std::mutex m_mutex;
     std::condition_variable m_cv;
     cv::Mat m_latest;
     VmbUint64_t m_latest_id = 0;
     bool m_hasNew = false;
+    std::atomic<bool> m_stopping{false};
 };
 
 class CameraWrapper {
@@ -50,6 +54,8 @@ private:
 
     int WIDTH = 0;
 
+    float FPS;
+
     bool IS_RUNNING = false;
 
     bool STREAMING = false;
@@ -66,7 +72,7 @@ private:
 public:
 
     // Constructor
-    CameraWrapper();
+    CameraWrapper(float FPS);
 
     // Destructor
     ~CameraWrapper();

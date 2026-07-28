@@ -30,8 +30,7 @@ EXEC_DIR="${EXEC_DIR:-$(dirname "$(readlink -f "$0")")/bin}"
 
 # Map each action to its executable. Adjust filenames here if needed.
 declare -A EXECS=(
-  [PingPID]="PingPID"
-  [TestMotor]="TestMotor"
+  [TestArduino]="testingArduinoMain"
   [TestCam]="TestCam"
   [IdleCam]="IdleCam"
   [DebrisTracking]="main"
@@ -95,21 +94,12 @@ prompt() {
 # States
 # ---------------------------------------------------------------------------
 
-state_pingpid() {
-  # Ping Arduino to test serial connection
-  log "PingPID active — pinging arduino."
-  run_exec PingPID
-
-  log "Leaving PingPID — return to Standby."
-  return 0
-}
-
-state_testmotor() {
+state_testarduino() {
   # Send commands to Arduino to test motor positioning.
-  log "TestMotor active — driving motor."
-  run_exec TestMotor
+  log "TestArduino active — driving motor."
+  run_exec TestArduino
 
-  log "Leaving TestMotor — return to Standby."
+  log "Leaving TestArduino — return to Standby."
   return 0
 }
 
@@ -159,20 +149,15 @@ state_standby() {
   while true; do
     local sel
     prompt "Standby (idle, no video capture)" \
-      "PingPID" \
-      "TestMotor" \
+      "TestArduino" \
       "TestCam" \
       "IdleCam" \
       "DebrisTracking" \
       "TestAlgorithm" \
       "Power Off"
     case "$SELECTION" in
-      PingPID)
-        state_pingpid
-        log "Return to Standby."
-        ;;
-      TestMotor)
-        state_testmotor
+      TestArduino)
+        state_testarduino
         log "Return to Standby."
         ;;
       TestCam)

@@ -32,6 +32,17 @@ private:
     float current_mean_vx, current_mean_vy;
     float current_median_vx, current_median_vy;
 
+    // ---- shared banding state (computed once per frame by computeBands) ----
+    float band_y_min;
+    float band_h;
+    int   num_bands;
+    std::vector<std::vector<int>> prev_bins;   // band -> prev indices (with overlap)
+    std::vector<std::vector<int>> next_bins;   // band -> next indices
+    std::vector<std::vector<int>> prev_cols;   // prev index -> candidate next indices (union)
+    bool  bands_valid;                         // false when prev/next empty
+
+    int band_of( float y ) const;
+
 public:
 
     // Constructor
@@ -77,6 +88,10 @@ public:
 
     std::vector<cv::KalmanFilter> getKFList(); // new
 
+    std::vector<bool> getTimedOutList(); // new
+
+    void updateAfterFileDump(int cutoff_index); // new
+
 
     // Calculate and return functions of linked targets and their speed metrics
     std::vector<Target*> getRelevantTargets();
@@ -105,8 +120,11 @@ public:
     // compute graph weights for hungarian selector
     void computeWeights();
 
+    // compute bands for selector
+    void computeBands();
+
     // compute vector matching targets based on solution
-    std::vector<int> hungarianAlgorithm( std::vector<std::vector<int>> cost_matrix );
+    std::vector<int> hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix );
 
     // connect target prev/next instance pointers
     void connect(); // also calls determineRelevantTargets() and calculateMedianVelocity()

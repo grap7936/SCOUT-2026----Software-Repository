@@ -8,8 +8,37 @@ Sentry::Sentry() {
     next_targets = {};
     current_frame_number = -1;
 
-    DEBRIS_LOG_FILENAME = "debrisLog.txt";
-    TARGET_LOG_FILENAME = "oldTargetsLog.txt";
+    TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
+
+    TRACKER_DEBRIS_THRESHOLD = 20;
+    TRACKER_DECAY = 6;
+    TRACKER_SPEED_NOISE_FLOOR = 0.5f;
+    TRACKER_SCORE_GAIN = 1.5f;
+
+    DETECTOR_BG_REFRESH_FREQUENCY = 30;
+    DETECTOR_BLUR_KERNEL_SIZE = 5;
+    DETECTOR_BG_THRESHOLD_MARGIN = 10;
+    DETECTOR_DILATION_ITERATIONS = 1;
+    DETECTOR_MAX_CONTOUR_SIZE = 1000;
+
+    SELECTOR_CLOSENESS_THRESHOLD = 100;
+    SELECTOR_FRAME_TIMEOUT = 4;
+    SELECTOR_WEIGHT_COMPOSITION = 0.25; // 0.25 splits gains to [ 0.25 | 0.75 ] for [ x,y | nx,ny ]
+
+    detector = Detector(DETECTOR_BLUR_KERNEL_SIZE, DETECTOR_BG_THRESHOLD_MARGIN, DETECTOR_DILATION_ITERATIONS, DETECTOR_MAX_CONTOUR_SIZE);
+    selector = Selector(SELECTOR_CLOSENESS_THRESHOLD, SELECTOR_FRAME_TIMEOUT, SELECTOR_WEIGHT_COMPOSITION);
+
+}
+
+// Constructor wth log file name
+Sentry::Sentry(std::string filename ) {
+    full_target_list = {};
+    target_debris_count = {};
+    prev_targets = {};
+    next_targets = {};
+    current_frame_number = -1;
+
+    TARGET_LOG_FILENAME = filename;
 
     TRACKER_DEBRIS_THRESHOLD = 20;
     TRACKER_DECAY = 6;
@@ -116,7 +145,10 @@ void Sentry::pageFrame( cv::Mat& frame ) {
         prev_targets.push_back(retained_targets[i]);
     }
     for (size_t i = 0; i < next_targets.size(); i++) {
-        prev_targets.push_back(next_targets[i]);
+        auto t = next_targets[i];
+        if ( t->getNextInstancePtr() == nullptr ) {
+            prev_targets.push_back(next_targets[i]);
+        }
     }
     
     // Step 3: Clear the next array buffer and query the detector for incoming updates
@@ -308,7 +340,16 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
     if (selector.getTargetListOffset() > cutoff) {
         writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+cutoff), TARGET_LOG_FILENAME, true);
         dumpOldTargets(cutoff);
-        selector.setTargetListOffset(0);
+        debris_id -= cutoff;
+    }
+
+    // hard cutoff to prevent infinite memory allocation
+    int hard_cutoff = 10000;
+    int s = full_target_list.size();
+    if (s > hard_cutoff) {
+        writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+s), TARGET_LOG_FILENAME, true);
+        dumpOldTargets(s);
+        debris_id -= s;
     }
 
     return -1;
@@ -412,13 +453,13 @@ void Sentry::writeTargetsToFile(std::vector<Target*> target_list, std::string fi
             Saved_Target_Data << current->getID();
 
             // Loop through the linked list until reaching the end which is signified by a nullptr
-            while (current != nullptr)
-                {
+            while (current != nullptr) {
+
                 Saved_Target_Data 
-                    << ",\t" << current->getX() << "," << current->getY()
-                    << ",\t" << current->getKx() << "," << current->getKy()
-                    << ",\t" << current->getVx() << "," << current->getVy()
-                    << ",\t" << current->getDebrisLikelihood() << "\n";
+                    << "," << std::setw(12) << current->getX() << "," << std::setw(12) << current->getY()
+                    << "," << std::setw(12) << current->getKx() << "," << std::setw(12) << current->getKy()
+                    << "," << std::setw(12) << current->getVx() << "," << std::setw(12) << current->getVy()
+                    << "," << std::setw(12) << current->getDebrisLikelihood() << "\n";
 
                 // Move to the next target in this linked list by accessing the forward pointer defined in the target class (target.hpp)
                 current = current->getNextInstancePtr();
@@ -460,9 +501,9 @@ void Sentry::dumpOldTargets(int cutoff_index)  {
     for (int i = 0; i < cutoff_index; i++) { // loops through all of the targets in the full target list by using a range based for loop
         Target* current = full_target_list[i]; 
         // loop through LL deleting all instances
-        while (current->getNextInstancePtr() != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
-            current = current->getNextInstancePtr(); // move to next target object in list
-            delete current->getPrevInstancePtr(); // Free the previous target memory
+        while (current->getPrevInstancePtr() != nullptr) { // recall that nullptr indicates the end of the given linked list and so this loop runs provided it has not reached the end of the full list of targets
+            current = current->getPrevInstancePtr(); // move to next target object in list
+            delete current->getNextInstancePtr(); // Free the previous target memory
         }
         delete current;
 
@@ -476,11 +517,12 @@ void Sentry::dumpOldTargets(int cutoff_index)  {
         full_target_list[i]->setID(i);
     }
 
+    // update other tracking lists
+
     // Clear the debris tracking counts so the indices still match! target_debris_count has integers which store how many different object IDs have been identified. If full_target_list
     // is cleared and begins to get new data and target_debris_count is uncahnged, there will be more object IDs retained from before and when new objects then appear as they are newly 
     // written into full_target_list then the findDebris function will break down and segmentation faults will occur.
     target_debris_count.erase(target_debris_count.begin(), target_debris_count.begin()+cutoff_index);
 
-    selector.setTargetListOffset( selector.getTargetListOffset - cutoff_index );
-
+    selector.updateAfterFileDump(cutoff_index);
 }

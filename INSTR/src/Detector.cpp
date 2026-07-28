@@ -41,6 +41,7 @@ Detector::Detector( int blur_size, int thresh_margin, int dilation_iter, int con
     BG_THRESHOLD_MARGIN = thresh_margin;
     DILATION_ITERATIONS = dilation_iter;
     MAX_CONTOUR_SIZE = contour_size;
+    MIN_CONTOUR_SIZE = 2;
     
     end_calibration_period = 0;
     global_background_noise = 0.0;
@@ -265,63 +266,6 @@ Inputs:
 Outputs:
 1.) dilated = fully filtered image that is now blurred, black and white, with removed/thresholded pixels that are expanded to most fully identify objects
 */
-
-
-// Data type of return variable is cv::Mat which takes in an image, processing its pixels and outputs an a processed image
-// cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an image matrix and we pass by reference so that no new copies of the image are created in storage which would lower frame rate
-
-
-//   // Makes a matrix/image output in 7 separate stages/objects which track the evolution of the image overtime through a "pipeline" of image processing steps.  These steps/stages are all used in the code later.
-//   // Stages:
-//   // 1.) fg_mask == the foreground mask which is created by applying the background subtractor to the blurred frame. This shows the moving objects in white and the background in black.
-//   // 2.) blur == median blur is applied to the foreground mask to remove extraneous camera noise.
-//   // 3.) thresh_temp == the thresholded version of the foreground mask which is created by applying a binary threshold to the foreground mask.  This is temporary and will be overwritten later when subtracting overall background noise 
-//   // An arbitrary threshold helps forces all pixels to be either white (255) or black (0), which forces the foreground to be either completely white or completely black which makes it easier to detect contours.
-//   // 4.) bg_mask == this background mask is created by inverting the colors of the temporarily thresholded image to be later applied onto the foreground mask and then subtracted off to the get the global noise level.
-//   // 5.)
-//   // 6.) thresh == final thresholded frame after the global noise subtraction has been subtracted
-//   // 7.) dilated == the dilated version of the thresholded image which is created by applying a dilation operation to the thresholded image. This helps to bridge any gaps in the contours by expanding the white pixels of the moving objects which makes it easier to detect contours.
-  
-//     // GPU-accelerated pipeline (Jetson): the entire chain below runs on the device.
-//     // The frame is uploaded once at the top and only the final dilated mask is copied
-//     // back to the host. Intermediate stages never round-trip to CPU memory. All device
-//     // buffers (d_*) and the filter primitives (d_median_filter, d_dilate_filter) are
-//     // class members allocated/built once, so no per-frame GPU allocation happens here.
-
-//     // Upload the raw frame to the device (host -> device). On Jetson's unified DRAM this
-//     // is cheap; it can later be made zero-copy with pinned/managed memory if desired.
-//     d_frame.upload(frame);
-
-//     // mono mask that converts the frame to single-channel grayscale
-//     if (frame.channels() == 1) {
-//         d_mono = d_frame;
-//     } else if (frame.channels() >= 3) {
-//         cv::cuda::cvtColor(d_frame, d_mono, cv::COLOR_BGR2GRAY);
-//     }
-
-//     // Applies median Blur to the mono mask (kernel size == BLUR_KERNEL_SIZE). Uses the
-//     // pre-built CUDA median filter; higher kernel size means more overall blur.
-//     d_median_filter->apply(d_mono, d_blur);
-
-//     // Subtract the global background noise from every pixel (device-side scalar subtract).
-//     cv::cuda::subtract(d_blur, cv::Scalar(global_background_noise), d_cleaned);
-
-//     // Apply final binary thresholding on the device. Same semantics as the CPU
-//     // cv::threshold with THRESH_BINARY.
-//     cv::cuda::threshold(d_cleaned, d_thresh, BG_THRESHOLD_MARGIN, 255, cv::THRESH_BINARY);
-
-//     // Dilate the thresholded mask using the pre-built 3x3 morphology filter
-//     // (DILATION_ITERATIONS baked in at construction). Bridges small gaps in contours.
-//     d_dilate_filter->apply(d_thresh, d_dilated);
-
-//     // Copy only the final mask back to the host (device -> host) for CPU-side
-//     // findContours() in contours().
-//     cv::Mat dilated;
-//     d_dilated.download(dilated);
-
-//     return dilated;
-// }
-
 cv::Mat Detector::filter(const cv::Mat& frame) {
 
     // Lazily allocate the shared buffers once we know the frame geometry.
@@ -367,7 +311,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
     // Clone into a caller-owned Mat. findContours() modifies its input in place
     // and the next frame's filter() reuses h_dilated_shared, so the caller must
     // NOT hold a bare header into the shared buffer.
-    return h_dilated_shared.createMatHeader().clone();
+    return h_dilated_shared.createMatHeader();//.clone(); // .clone was old and is probably not needed
 }
 
 // contours() member function
@@ -414,7 +358,7 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
                                                 // const makes sure that the contours do not change inside the loop which can prevent errors 
         double size = cv::contourArea(contour); // uses contourArea to return total number of pixels (i.e size) that each contour/bounding box envelopes
 
-        if (size < MAX_CONTOUR_SIZE) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
+        if ( size < MAX_CONTOUR_SIZE && size > MIN_CONTOUR_SIZE ) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
 
             // Creates a bounding rectangle around the contour
             cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes

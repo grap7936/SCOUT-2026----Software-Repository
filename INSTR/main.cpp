@@ -18,7 +18,7 @@ using namespace VmbCPP;
 
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny);
 
-const int FPS = 79; // defined by user to match camera
+const float FPS = 50.0; // defined by user, Alvium Camera Max FPS is 79.0
 
 void setupArduino(ArduinoSend& sender);
 
@@ -49,14 +49,14 @@ int main() {
     Debris_Data.close();
 
     std::ofstream Motor_Data;
-    Motor_Data.open(DEBRIS_LOG_FILENAME); // opens/creates necessary text file for inputting data into
-    Motor_Data << "frame_num, motor_pos\n";
+    Motor_Data.open(MOTOR_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    Motor_Data << "frame_num, motor_pos, gap\n";
     Motor_Data.close();
 
     // Set up arduino connection
 
-    // Define the serial port node. On a Raspberry Pi, an Arduino UNO typically populates as "/dev/ttyACM0" or "/dev/ttyACM1".
-    std::string serial_port = "/dev/ttyACM0"; 
+    // Define the serial port node. On a Raspberry Pi, an Arduino UNO typically populates as "/dev/ttyCH341USB0" or "/dev/ttyACM1".
+    std::string serial_port = "/dev/ttyCH341USB0"; 
     
     std::cout << "Initializing ArduinoSend on serial port: " << serial_port << std::endl; // output port connection information to the console
     ArduinoSend sender(serial_port); // create instance of the ArduinoSend function configured with the correct serial port
@@ -64,7 +64,7 @@ int main() {
     setupArduino(sender);
 
     // Initialize camera
-    CameraWrapper cam;
+    CameraWrapper cam(FPS);
 
     // set parallelization thread count
     omp_set_num_threads(4);
@@ -75,9 +75,15 @@ int main() {
     // any frame has arrived) guarantees the VideoWriter matches what we write.
     cv::Mat first = cam.getFrame(5000);
     if (first.empty()) {
-        std::cerr << "Error: no initial frame from camera. Exiting." << std::endl;
-        return -1;
+        std::cerr << "Error: no initial frame from camera. Restarting...." << std::endl;
+        cam.restart();
+        first = cam.getFrame(5000);
+        if (first.empty()) {
+            std::cerr << "Error: no initial frame from camera. Exiting." << std::endl;
+            return -1;
+        }
     }
+
     int frame_width  = first.cols;
     int frame_height = first.rows;
     bool is_color    = (first.channels() == 3);
@@ -94,21 +100,35 @@ int main() {
     cv::Size frame_size(enc_width, enc_height);
 
     // Hardware-encoded pipeline using the Orin's NVENC block via GStreamer.
-    // appsrc         -> receives frames from writer.write()
-    // videoconvert   -> BGR (what OpenCV hands over) to a format nvvidconv accepts
-    // x264enc  -> the actual hardware H.264 encoder
-    // speed-preset/tune -> performance speedups
-    // key-int-max, bframes, ref -> recommended tuning
-    // h264parse/qtmux -> wrap the stream into an .mp4 container
+    // appsrc                       -> receives frames from writer.write()
+    // video/x-raw, format=GRAY8    -> Inform GStreamer OpenCV is pushing 8-bit grayscale
+    // queue                        -> prevent frames being skipped by adding to queue
+    // nvvidconv                    -> Uses Jetson's VIC engine to cleanly convert GRAY8 to NVMM memory
+    // video/x-raw(memory:NVMM)     -> Scales down frame for faster writing to disc
+    // nvvidconv (2)                -> Moves data out of NVMM back to system memory for the CPU encoder
+    // video/x-raw, format=I420     -> Outputs H.264 compatible grayscale-mapped color space
+    // x264enc                      -> the actual hardware H.264 encoder
+    // speed-preset/tune            -> performance speedups
+    // key-int-max, bframes, ref    -> recommended tuning
+    // h264parse/mpegtsmux          -> wrap the stream into an .ts container
+    // config-interval              -> Essential for crash recovery in MPEG-TS
+    // video/x-h264, stream-format  -> Required by mpegtsmux
+    //
     // Encode at half resolution. findDebris() still runs on the full-res frame;
-    std::string gst_pipeline =
-        "appsrc ! videoconvert ! "
-        "nvvidconv ! video/x-raw(memory:NVMM),width=" + std::to_string(enc_width) +
-        ",height=" + std::to_string(enc_height) + " ! "
-        "nvvidconv ! video/x-raw,format=I420 ! "
-        "x264enc speed-preset=ultrafast tune=zerolatency "
-        "bitrate=4000 key-int-max=30 bframes=0 ref=1 aud=false ! "
-        "h264parse ! qtmux ! filesink location=" + VIDEO_FILENAME;
+
+    std::string gst_pipeline = "appsrc ! "
+    "video/x-raw, format=GRAY8 ! " 
+    "queue ! "
+    "nvvidconv ! " 
+    "video/x-raw(memory:NVMM), width=" + std::to_string(enc_width) + ", height=" + std::to_string(enc_height) + " ! "
+    "nvvidconv ! " 
+    "video/x-raw, format=I420 ! " 
+    "x264enc speed-preset=ultrafast tune=zerolatency bitrate=4000 key-int-max=30 bframes=0 ref=1 aud=false ! "
+    "h264parse config-interval=1 ! " 
+    "video/x-h264, stream-format=byte-stream ! "
+    "queue ! "
+    "mpegtsmux ! " 
+    "filesink location=" + VIDEO_FILENAME;
 
     // NOTE: 4th arg is cv::CAP_GSTREAMER, telling OpenCV to treat the string
     // as a pipeline rather than a filename. FPS must match your capture rate.
@@ -118,7 +138,7 @@ int main() {
         return -1;
     }
 
-    Sentry sentry;
+    Sentry sentry(TARGET_LOG_FILENAME);
     int timeout = 2000; //ms
 
     // Non-blocking terminal input: press 'q' (or ESC) to quit. Works whether
@@ -145,12 +165,14 @@ int main() {
         
         // read motor position
         std::vector<double> raw = sender.readMotorPosition(Motor_Data);
-        double m_pos = raw[1];
+        //double m_pos = raw[1];
         int ard_frame_num = static_cast<int>(raw[0]);
 
         long long fid = cam.getFrameID();
 
         long long gap = fid - ard_frame_num;
+
+        Motor_Data << std::setw(12) << gap << "\n";
 
         std::cout << "Frame ID gap: " << gap << std::endl;
 
@@ -160,11 +182,11 @@ int main() {
         if ( debris_id != -1 ){
             // write to file
             Target* current = (*sentry.getFullListPtr())[debris_id];
-            Debris_Data << fid << ", " << debris_id
-                    << ", " << current->getX() << "," << current->getY()
-                    << ", " << current->getKx() << "," << current->getKy()
-                    << ", " << current->getVx() << "," << current->getVy()
-                    << ", " << current->getDebrisLikelihood() << "\n" << std::flush;
+            Debris_Data << std::setw(12) << fid << "," << std::setw(12) << debris_id
+                    << "," << std::setw(12) << current->getX() << "," << std::setw(12) << current->getY()
+                    << "," << std::setw(12) << current->getKx() << "," << std::setw(12) << current->getKy()
+                    << "," << std::setw(12) << current->getVx() << "," << std::setw(12) << current->getVy()
+                    << "," << std::setw(12) << current->getDebrisLikelihood() << "\n" << std::flush;
 
             // write to Arduino
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
