@@ -24,7 +24,7 @@ each function which helps to execute the required functionality, such as moving 
 
 Author: Graeme Appel
 
-Last Updated: 7/22/2026
+Last Updated: 7/28/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -43,8 +43,7 @@ Last Updated: 7/22/2026
 volatile float CURRENT_MOTOR_POS = 0.0;
 volatile int FRAME_NUM = 0; // Frame number counter starting from when the camera begins sending and processing data each time after an interrupt -- initialized to 0 for the time being, this will be changed later in the code.
 extern float const Sentry_RPM = 10; // set the spinning motor speed to a default of 10 RPM. Likely this parameter won't be changed but if so the user input on the testingArduinoMain side can be altered
-const float GEAR_RATIO = 3.2; // revolution ratio between motor and gimbal
-
+const float GEAR_RATIO = 3.2; // revolution ratio between motor and gimbal -- ensures that the revolutions of the motor are scaled so that the entire gimbal system rotates as desired.
 // --- Hardware Pins ---
 const int ENCODER_PIN = 3;   // PWM encoder signal (White wire) -- singular interrupt pin
 
@@ -381,8 +380,11 @@ void loop() {
                                                                      // could cause the motor to stop moving or physically drop to being limp which could effect the inertia of the payload. By being shortly 
                                                                      // in angle mode, this allows the system to actively hold the motor position while transitioning to tracking mode so that when torque mode
                                                                      // enagages, voltage inputs can be used effectively.
+
+                        // reset necessary components to 0 for to prepare for target tracking mode
                         motor_target_angle = 0.0;
                         FRAME_NUM = 0;
+
                         // Primes the tracking variables immediately when the system switches from Testing Mode to Tracking Mode
                         // Ensures that the very first live tracking maneuver correctly calculates its elapsed time and start angle without using leftover data from testing modes.
                         movementActive = true; 
@@ -410,7 +412,7 @@ void loop() {
     // Pass target parameters to physical driver constraints
     // Wrapped in if(testModeActive) so the general motor.move() doesn't overwrite the tracking voltage command
     if (testModeActive) {
-        if (motor.controller == MotionControlType::velocity) {
+        if (motor.controller == MotionControlType::velocity || motor.controller == MotionControlType::velocity_openloop) {
             motor.move(GEAR_RATIO * motor_target_velocity);
         } else {
             motor.move(GEAR_RATIO * motor_target_angle);
