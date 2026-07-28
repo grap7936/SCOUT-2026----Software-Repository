@@ -161,10 +161,10 @@ std::vector<Target*> Graph::getTargets() {
     return targets;
 }
 
-// Returns weight list
-std::vector<int> Graph::getWeights() {
-    return weights;
-}
+// Returns weight list -- moved to constructor
+// std::vector<int> Graph::getWeights() {
+//     return weights;
+// }
 
 /* Function addVertex( Target* vertex )
  * description:
@@ -269,6 +269,30 @@ void Graph::calcWeight( float gain1 ) {
 
     }
 
+}
+
+// Same math as calcWeight, but only for the candidate columns. Entries outside
+// the band keep the INT_MAX sentinel, which connect()'s `w > THRESHOLD` check
+// rejects exactly as it would a too-distant real weight.
+void Graph::calcWeightBanded( float gain1, const std::vector<int>& cols ) {
+    const float gain2 = 1.0f - gain1;
+    std::fill(weights.begin(), weights.end(), INT_MAX);
+
+    for (size_t k = 0; k < cols.size(); k++) {
+        const int i = cols[k];
+
+        int dx = root_x - targets[i]->getX();
+        int dy = root_y - targets[i]->getY();
+        float norm1 = std::sqrt( dx*dx + dy*dy );
+        int weight1 = gain1 * norm1 * 10;
+
+        int dnx = root_nx - targets[i]->getX();
+        int dny = root_ny - targets[i]->getY();
+        float norm2 = std::sqrt( dnx*dnx + dny*dny );
+        int weight2 = gain2 * norm2 * 10;
+
+        weights[i] = weight1 + weight2;
+    }
 }
 
 /* Function calcWeightOMP( float gain1 )

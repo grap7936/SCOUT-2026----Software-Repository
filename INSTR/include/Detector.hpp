@@ -77,6 +77,7 @@ private:
     int BG_THRESHOLD_MARGIN;
     int DILATION_ITERATIONS;
     int MAX_CONTOUR_SIZE;
+    int MIN_CONTOUR_SIZE;
 
     int end_calibration_period;    // frame index at which background calibration stops
     double global_background_noise; // current estimated background brightness to subtract

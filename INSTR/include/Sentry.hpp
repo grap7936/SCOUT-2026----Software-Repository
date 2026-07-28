@@ -13,7 +13,6 @@
 class Sentry {
 private:
 
-    std::string DEBRIS_LOG_FILENAME;
     std::string TARGET_LOG_FILENAME;
 
     int TRACKER_DEBRIS_THRESHOLD;
@@ -47,6 +46,8 @@ private:
 public:
 
     Sentry();
+
+    Sentry(std::string alltargets_logfile);
 
     // Setters for primary parameters
     void setTrackerParams( int thresh, int decay, float noise_floor, float score_gain );

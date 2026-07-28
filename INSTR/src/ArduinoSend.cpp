@@ -14,7 +14,7 @@ Code Summary:  This code details the Jetson side of the Jetson to Arduino serial
 
 Author: Graeme Appel
 
-Last Updated: 7/15/2026
+Last Updated: 7/23/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -65,7 +65,7 @@ Outputs:
 
 bool ArduinoSend::initializePort() {
     // Open read/write, block execution on read, prevent it from becoming a controlling terminal
-    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY );
+    serial_fd = open(port_name.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (serial_fd == -1) {
         std::cerr << "[ERROR] ArduinoSend: Failed to open port " << port_name << std::endl;
         return false;
@@ -94,7 +94,7 @@ bool ArduinoSend::initializePort() {
     options.c_oflag &= ~OPOST;
 
     options.c_cc[VMIN]  = 0;  // Non-blocking read: return immediately if no data
-    options.c_cc[VTIME] = 1;  // Wait up to 1 decisecond (100ms) for incoming bytes
+    options.c_cc[VTIME] = 0;  // Wait up to 1 decisecond (100ms) for incoming bytes
 
     // Apply configuration changes immediately
     tcsetattr(serial_fd, TCSANOW, &options);
@@ -266,26 +266,93 @@ std::vector<double> ArduinoSend::readMotorPosition(std::ofstream& logFile) {
     char read_buffer[256];
     memset(read_buffer, 0, sizeof(read_buffer)); // makes all 256 slots in char array become \0 which indicates the end of a string/text when using std::cout -- this makes sure printing and organizing works well
 
-    int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer)); // input 1: File descriptor showing where USB port connection is
+    int bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1); // input 1: File descriptor showing where USB port connection is
                                                                             // input 2: Linux puts the characters sent back by the Arduino into the read_buffer 256 byte array called read_buffer
                                                                             // input 3: Max number of bytes that can have data stored in it. In this case it is 255 because this matches the number of bytes for our 8 bit unsigned
                                                                             // integers and also we need the last byte to be the \0 to tell Linux it is done receiving data for that packet.
-    if (bytes_read > 0) rx_accum.append(read_buffer, bytes_read);
 
-    size_t nl;
-    std::vector<double> result = {-1.0, -1.0};
-    while ((nl = rx_accum.find('\n')) != std::string::npos) {
-        std::string line = rx_accum.substr(0, nl);
-        rx_accum.erase(0, nl + 1);
-        int parsedFrame; double motorPos;
-        if (sscanf(line.c_str(), "%d, %lf", &parsedFrame, &motorPos) == 2) {
-            logTelemetry(logFile, parsedFrame, motorPos, !tracking_mode_active);
-            result = { static_cast<double>(parsedFrame), motorPos };   // keep most recent
-        }
+    if (bytes_read > 0) {
+       // std::cout << "[ARDUINO RESPONSE]:\n" << read_buffer << std::endl;
+
+        // // Convert the raw bare float response string to a double variable
+        // double motorPos = std::stod(read_buffer);
+
+        int parsedFrame = 0;
+        double motorPos = 0.0;
+
+    // Extract both variables from the "Frame: Pos: " string layout
+    if (sscanf(read_buffer, "%d, %lf", &parsedFrame, &motorPos) == 2) {
+
+        // If tracking is active, isMotorTest is FALSE (logs as CURRENT_MOTOR_POS)
+        // If tracking is inactive, isMotorTest is TRUE (logs as motor.shaft_angle)
+        bool isMotorTest = !tracking_mode_active;
+
+        // Pass the parsed frame count directly from the Arduino to your log file
+        logTelemetry(logFile, parsedFrame, motorPos, isMotorTest);
+
+        // Return vector containing: {frame_number, motor_position}
+        return { static_cast<double>(parsedFrame), motorPos }; 
+
+    } else {
+        std::cerr << "[WARNING] Could not parse frame and motor position from line: " << read_buffer << std::endl;
+        return {-1.0, -1.0}; // Indicate parsing error
     }
-    return result;
+}
+
+else {
+        std::cerr << "[WARNING] No verification data returned from Arduino." << std::endl;
+        return {-1.0, -1.0}; 
+    }
 
 } 
+
+
+/////////////////////////////////////////////////////////////
+
+/* 4.) readStringResponse() function
+
+Function description: 
+   Reads raw text/string characters from the serial buffer.
+   Used for testing bilateral communications (Ping Test).
+
+Inputs: 
+None
+
+Outputs:
+1.) std::string response == string messages which read over the exact serial.println text from the ReceiveEnd_Arduino.cpp 
+    and receive back the test byte to send to thhe console when testing the Jetson.
+
+*/
+
+
+/////////////////////////////////////////////////////////////
+
+
+std::string ArduinoSend::readStringResponse() {
+    if (serial_fd == -1) return "Error: Serial port not open."; // Safety check
+
+    std::string response = "";
+    char read_buffer[256];
+    memset(read_buffer, 0, sizeof(read_buffer)); 
+
+    int bytes_read = 0;
+    
+    // Keep reading chunks until the non-blocking serial buffer is completely empty
+    while ((bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1)) > 0) {
+        read_buffer[bytes_read] = '\0'; // Ensure null-termination
+        response += read_buffer;        // Append the new chunk to the main string
+        memset(read_buffer, 0, sizeof(read_buffer)); // Clear the buffer for the next loop
+    }
+
+    if (response.empty()) {
+        return "[WARNING] No string data found in buffer.";
+    }
+
+    return response;
+}
+
+
+
 
 /////////////////////////////////////////////////////////////
 
@@ -320,9 +387,9 @@ void ArduinoSend::logTelemetry(std::ofstream& logFile, int frameNum, double moto
 
     //  Organizes variables into a clean structural column layout based on the data type source
     if (isMotorTest) {
-        logFile << "-1, " << motorPos << "\n";
+        logFile << "Type: MOTOR_TEST, Frame: N/A, Position: " << motorPos << "\n";
     } else {
-        logFile << frameNum << ", " << motorPos << "\n";
+        logFile << "Type: TRACKING, Frame: " << frameNum << ", Position: " << motorPos << "\n";
     }
 
     // Flushes the stream immediately so data hits your disk without waiting for cache boundaries
