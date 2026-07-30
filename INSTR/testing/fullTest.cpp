@@ -26,7 +26,7 @@ static const bool GUI = hasDisplay();
 int main() {
 
     // Set up data output files
-    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.ts";
+    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/fullTestResults.ts";
     std::string MOTOR_LOG_FILENAME = "/home/scout/Desktop/INSTR/motorLog.txt";
     std::string DEBRIS_LOG_FILENAME = "/home/scout/Desktop/INSTR/debrisLog.txt";
     std::string TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
