@@ -7,6 +7,7 @@ Software and operating instructions for the SCOUT INSTR debris-tracking system. 
 - [System Setup](#system-setup)
   - [Supplying Power](#supplying-power)
   - [Connecting to the Jetson](#connecting-to-the-jetson)
+  - [Software Configuration](#software-configuration)
 - [Using the Software](#using-the-software)
   - [Testing](#testing)
   - [Primary Program](#primary-program)
