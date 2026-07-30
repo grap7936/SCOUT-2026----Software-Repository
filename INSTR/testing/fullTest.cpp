@@ -26,7 +26,7 @@ static const bool GUI = hasDisplay();
 int main() {
 
     // Set up data output files
-    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/debrisTestResults.mp4";
+    std::string VIDEO_FILENAME = "/home/scout/Desktop/INSTR/fullTestResults.ts";
     std::string MOTOR_LOG_FILENAME = "/home/scout/Desktop/INSTR/motorLog.txt";
     std::string DEBRIS_LOG_FILENAME = "/home/scout/Desktop/INSTR/debrisLog.txt";
     std::string TARGET_LOG_FILENAME = "/home/scout/Desktop/INSTR/oldTargetsLog.txt";
@@ -43,14 +43,14 @@ int main() {
     Debris_Data.close();
 
     std::ofstream Motor_Data;
-    Motor_Data.open(DEBRIS_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    Motor_Data.open(MOTOR_LOG_FILENAME); // opens/creates necessary text file for inputting data into
     Motor_Data << "frame_num, motor_pos\n";
     Motor_Data.close();
 
 
     // Set up arduino connection
-    // Define the serial port node. On a Raspberry Pi, an Arduino UNO typically populates as "/dev/ttyACM0" or "/dev/ttyACM1".
-    std::string serial_port = "/dev/ttyACM0"; 
+    // Define the serial port node. On a Raspberry Pi, an Arduino UNO typically populates as "/dev/ttyCH341USB0" or "/dev/ttyACM1".
+    std::string serial_port = "/dev/ttyCH341USB0"; 
     
     std::cout << "Initializing ArduinoSend on serial port: " << serial_port << std::endl; // output port connection information to the console
     ArduinoSend sender(serial_port); // create instance of the ArduinoSend function configured with the correct serial port
@@ -89,7 +89,7 @@ int main() {
         return -1;
     }
 
-    Sentry sentry;
+    Sentry sentry(TARGET_LOG_FILENAME);
 
     // Non-blocking terminal input: press 'q' (or ESC) to quit.
     KeyInput keys;
@@ -98,7 +98,7 @@ int main() {
     // open file write streams
     Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
     Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
-    All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app);
+    //All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app); handled in Sentry.cpp writeToFile()
 
     int debris_id = -1;
     cv::Mat frame;
@@ -111,19 +111,19 @@ int main() {
 
         // read motor position
         std::vector<double> raw = sender.readMotorPosition(Motor_Data);
-        double m_pos = raw[1];
-        double ard_frame_num = raw[0];
+        //double m_pos = raw[1];
+        //double ard_frame_num = raw[0];
 
         debris_id = sentry.findDebris(frame, debris_id, fid);
 
         if ( debris_id != -1 ){
             // write to file
             Target* current = (*sentry.getFullListPtr())[debris_id];
-            Debris_Data << m_pos << ", " << debris_id
-                    << ", " << current->getX() << "," << current->getY()
-                    << ", " << current->getKx() << "," << current->getKy()
-                    << ", " << current->getVx() << "," << current->getVy()
-                    << ", " << current->getDebrisLikelihood() << "\n" << std::flush;
+            Debris_Data << std::setw(12) << fid << "," << std::setw(12) << debris_id
+                    << "," << std::setw(12) << current->getX() << "," << std::setw(12) << current->getY()
+                    << "," << std::setw(12) << current->getKx() << "," << std::setw(12) << current->getKy()
+                    << "," << std::setw(12) << current->getVx() << "," << std::setw(12) << current->getVy()
+                    << "," << std::setw(12) << current->getDebrisLikelihood() << "\n" << std::flush;
 
             // write to Arduino
             std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
@@ -150,7 +150,7 @@ int main() {
 
     // Close file write streams
     Motor_Data.close();
-    All_Target_Data.close();
+    //All_Target_Data.close(); handled in Sentry.cpp writeToFile()
     Debris_Data.close();
 
     // Close openCV stuffs

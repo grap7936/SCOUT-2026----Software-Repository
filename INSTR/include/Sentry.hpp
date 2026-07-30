@@ -13,7 +13,6 @@
 class Sentry {
 private:
 
-    std::string DEBRIS_LOG_FILENAME;
     std::string TARGET_LOG_FILENAME;
 
     int TRACKER_DEBRIS_THRESHOLD;
@@ -34,9 +33,7 @@ private:
     
 
     long long int current_frame_number;
-    bool is_first_save = true; // used in writeTargetsToFile to determine if a new text file must be created to write information into 
-                               // -- this starts as true so that the 1st save creates new info and then is changed in the riteTargetsToFile() 
-                               // function to False for every subsequent case.
+    
     // cv::Mat prev_frame;
     // cv::Mat next_frame;
     std::vector<Target*> full_target_list;
@@ -49,6 +46,8 @@ private:
 public:
 
     Sentry();
+
+    Sentry(std::string alltargets_logfile);
 
     // Setters for primary parameters
     void setTrackerParams( int thresh, int decay, float noise_floor, float score_gain );

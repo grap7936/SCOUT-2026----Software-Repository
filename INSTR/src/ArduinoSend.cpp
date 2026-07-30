@@ -14,7 +14,7 @@ Code Summary:  This code details the Jetson side of the Jetson to Arduino serial
 
 Author: Graeme Appel
 
-Last Updated: 7/15/2026
+Last Updated: 7/23/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -305,6 +305,54 @@ else {
     }
 
 } 
+
+
+/////////////////////////////////////////////////////////////
+
+/* 4.) readStringResponse() function
+
+Function description: 
+   Reads raw text/string characters from the serial buffer.
+   Used for testing bilateral communications (Ping Test).
+
+Inputs: 
+None
+
+Outputs:
+1.) std::string response == string messages which read over the exact serial.println text from the ReceiveEnd_Arduino.cpp 
+    and receive back the test byte to send to thhe console when testing the Jetson.
+
+*/
+
+
+/////////////////////////////////////////////////////////////
+
+
+std::string ArduinoSend::readStringResponse() {
+    if (serial_fd == -1) return "Error: Serial port not open."; // Safety check
+
+    std::string response = "";
+    char read_buffer[256];
+    memset(read_buffer, 0, sizeof(read_buffer)); 
+
+    int bytes_read = 0;
+    
+    // Keep reading chunks until the non-blocking serial buffer is completely empty
+    while ((bytes_read = read(serial_fd, read_buffer, sizeof(read_buffer) - 1)) > 0) {
+        read_buffer[bytes_read] = '\0'; // Ensure null-termination
+        response += read_buffer;        // Append the new chunk to the main string
+        memset(read_buffer, 0, sizeof(read_buffer)); // Clear the buffer for the next loop
+    }
+
+    if (response.empty()) {
+        return "[WARNING] No string data found in buffer.";
+    }
+
+    return response;
+}
+
+
+
 
 /////////////////////////////////////////////////////////////
 

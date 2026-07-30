@@ -151,7 +151,18 @@ std::vector<cv::KalmanFilter> Selector::getKFList() {
     return kf_list;
 }
 
+// Returns the is_timed_out list
+std::vector<bool> Selector::getTimedOutList() {
+    return is_timed_out;
+}
 
+// update lists after a file dump
+void Selector::updateAfterFileDump(int cutoff_index) {
+    relevant_target_list_offset -= cutoff_index;
+    kf_list.erase(kf_list.begin(), kf_list.begin() + cutoff_index);
+    is_timed_out.erase(is_timed_out.begin(), is_timed_out.begin() + cutoff_index);
+
+}
 
 // Returns a list of pointers to relevant targets for the current frame comparison
 std::vector<Target*> Selector::getRelevantTargets() {
@@ -338,11 +349,14 @@ void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std
     // Phase 1: Advance historical tracking equations forward to match current time frame
     estimateNextState();
 
-    // Phase 2: Compute bipartite graph matching edges using Euclidean offsets
+    // Phase 2: Determine bands
+    computeBands();
+
+    // Phase 3: Compute bipartite graph matching edges using Euclidean offsets
     computeWeights();
 
-    // Phase 3: Solve the cost allocation problem and update node linking identities
-    connect();
+    // Phase 4: Solve the cost allocation problem and update node linking identities
+    connect(); 
 
 }
 
@@ -374,6 +388,81 @@ void Selector::estimateNextState() {
     }  
 }
 
+int Selector::band_of( float y ) const {
+    int b = static_cast<int>((y - band_y_min) / band_h);
+    if (b < 0) b = 0;
+    if (b >= num_bands) b = num_bands - 1;
+    return b;
+}
+
+void Selector::computeBands() {
+    const int prev_size = prev_targets->size();
+    const int next_size = next_targets->size();
+
+    prev_bins.clear();
+    next_bins.clear();
+    prev_cols.clear();
+    bands_valid = false;
+
+    if ( prev_size == 0 || next_size == 0 ) {
+        return;   // connect() bails early in this case anyway
+    }
+
+    // --- Y-range actually occupied by targets this frame ---
+    float y_min = 1e9f, y_max = -1e9f;
+    for (int j = 0; j < prev_size; j++) {
+        float y = (*prev_targets)[j]->getNy();
+        if (y < y_min) y_min = y;
+        if (y > y_max) y_max = y;
+    }
+    for (int c = 0; c < next_size; c++) {
+        float y = (*next_targets)[c]->getY();
+        if (y < y_min) y_min = y;
+        if (y > y_max) y_max = y;
+    }
+
+    band_y_min = y_min;
+
+    band_h = static_cast<float>(THRESHOLD) / 10.0f;
+    if (band_h < 1.0f) band_h = 1.0f;
+
+    float span = y_max - y_min;
+    if (span < 0.0f) span = 0.0f;
+    num_bands = static_cast<int>(span / band_h) + 1;
+    if (num_bands < 1) num_bands = 1;
+
+    prev_bins.assign(num_bands, {});
+    next_bins.assign(num_bands, {});
+
+    for (int c = 0; c < next_size; c++) {
+        next_bins[ band_of((*next_targets)[c]->getY()) ].push_back(c);
+    }
+
+    // Prev targets land in their own band plus the nearer neighbour, so a match
+    // straddling a band boundary is still seen by exactly one Hungarian solve.
+    for (int j = 0; j < prev_size; j++) {
+        int b = band_of((*prev_targets)[j]->getNy());
+        prev_bins[b].push_back(j);
+        float local = ((*prev_targets)[j]->getNy() - band_y_min) - b * band_h;
+        if (local < band_h * 0.5f && b - 1 >= 0)              prev_bins[b - 1].push_back(j);
+        else if (local >= band_h * 0.5f && b + 1 < num_bands) prev_bins[b + 1].push_back(j);
+    }
+
+    // --- Invert prev_bins -> per-prev candidate column set ---
+    // This is the exact union of next indices that connect() will ever look up
+    // for this prev target, so filling only these entries cannot lose a match.
+    prev_cols.assign(prev_size, {});
+    for (int b = 0; b < num_bands; b++) {
+        if (next_bins[b].empty()) continue;
+        for (int j : prev_bins[b]) {
+            prev_cols[j].insert( prev_cols[j].end(),
+                                 next_bins[b].begin(), next_bins[b].end() );
+        }
+    }
+
+    bands_valid = true;
+}
+
 /* Function computeWeights()
  * description:
  * Builds the proximity-cost graph for every previous track. For each target in
@@ -392,28 +481,31 @@ void Selector::estimateNextState() {
  * these graphs are never freed, so this leaks once per track per frame.
  */
 void Selector::computeWeights() {
-    
-    const bool parallel_outer = ( prev_targets->size() > next_targets->size() );
-    // Check which vector is larger to determine the better parallelization method
-    #pragma omp parallel for if(parallel_outer)
+
+    const size_t prev_size = prev_targets->size();
+
+    #pragma omp parallel for
     // loop through
-    for ( size_t i = 0; i < prev_targets->size(); i++) {
+    for ( size_t i = 0; i < prev_size; i++) {
         Target* p = (*prev_targets)[i];
 
         Graph* g = p->getProximity();
         if ( g == nullptr ) {
-            // allocate graph on heap
+            // allocate on heap
             g = new Graph();          // once per Target, ever
             // link graph to target
             p->setProximity(g);
         }
-        // constuct from current target lists
+        // construct from current target list
         g->rebuild( *p, *next_targets );
 
-        // calculate weight
-        if (parallel_outer) g->calcWeight( WEIGHT_COMPOSITION );
-        else                g->calcWeightOMP( WEIGHT_COMPOSITION );
-    }    
+        // calculate weights
+        if (bands_valid) {
+            g->calcWeightBanded( WEIGHT_COMPOSITION, prev_cols[i] );
+        } else {
+            g->calcWeight( WEIGHT_COMPOSITION );   // degenerate frame: full pass
+        }
+    }
 }
 
 /* Function hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix )
@@ -424,7 +516,7 @@ void Selector::computeWeights() {
  * returns:
  * std::vector<int> - a vector where result[i] contains the column index assigned to row i
  */
-std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cost_matrix ) {
+std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>>& cost_matrix ) {
     if (cost_matrix.empty()) return {};
 
     const int INF = 1e9; // Representation of infinity
@@ -520,153 +612,6 @@ std::vector<int> Selector::hungarianAlgorithm( std::vector<std::vector<int>> cos
  * - sets Target.prevInstance pointers for targets in nextTargets[].
  * - updates Target.id values for targets in nextTargets[] whose proximity value exceeds 'THRESHOLD' (see Constructor).
  */
-// void Selector::connect() {
-//     int prev_size = prev_targets->size();
-//     int next_size = next_targets->size();
-
-//     // Allocation tracking bitset to map which prospective destinations have been locked
-//     std::vector<bool> next_targets_used(next_targets->size(), 0);
-
-//     // Simple connect, check if one or less objects within threshold.
-
-//     // Step 1: for every detection, count how many prev_targets hold it as their
-//     // single sub-threshold candidate. A count > 1 means the singleton is contested.
-//     std::vector<int> singleton_claims(next_size, 0);     // claims on a detection by 1-candidate tracks
-//     std::vector<int> sole_candidate_col(prev_size, -1);  // the lone candidate col per prev (-1 if !=1 candidate)
-
-//     for ( int j = 0; j < prev_size; j++ ) {
-//         std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
-//         int found = -1;
-//         int count = 0;
-//         for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
-//             if ( w[c] <= THRESHOLD ) {
-//                 count++;
-//                 found = c;
-//                 if ( count > 1 ) { break; } // no need to keep counting past 2
-//             }
-//         }
-//         if ( count == 1 ) {
-//             sole_candidate_col[j] = found;
-//             singleton_claims[found]++;
-//         }
-//         // count == 0 -> sole_candidate_col stays -1, track is dropped (no defer, no connect)
-//         // count >= 2 -> sole_candidate_col stays -1, track is deferred below
-//     }
-
-//     // Step 2: commit uncontested singletons, defer everything ambiguous.
-//     std::vector<int> hungarian_rows; // prev_target indices that still need the optimizer
-//     for ( int j = 0; j < prev_size; j++ ) {
-//         std::vector<int> w = (*prev_targets)[j]->getProximity()->getWeights();
-
-//         // Recount only enough to classify this row (0, 1, or 2+ candidates).
-//         int candidate_count = 0;
-//         for ( int c = 0; c < (int)w.size() && c < next_size; c++ ) {
-//             if ( w[c] <= THRESHOLD ) { candidate_count++; if ( candidate_count > 1 ) break; }
-//         }
-
-//         if ( candidate_count == 0 ) {
-//             continue; // no plausible match -> drop from consideration entirely
-//         }
-
-//         int sole = sole_candidate_col[j];
-//         if ( candidate_count == 1 && sole != -1
-//              && singleton_claims[sole] == 1
-//              && next_targets_used[sole] == false ) {
-//             // Uncontested singleton: connect immediately (mirrors the Hungarian commit path).
-//             Target* prev = (*prev_targets)[j];
-//             Target* next = prev->getProximity()->getVertexPtr(sole);
-
-//             prev->setNextInstancePtr( next );
-//             next->setPrevInstancePtr( prev );
-//             next->setID( prev->getID() );
-
-//             next_targets_used[sole] = true;
-//             (*full_list)[ next->getID() ] = next;
-//         } else {
-//             // Contested singleton or multi-candidate: leave it for the optimizer.
-//             hungarian_rows.push_back(j);
-//         }
-//     }
-
-//     // Build the column map: the real next_target indices still undetermined after the
-//     // greedy pass (i.e. not claimed by an uncontested singleton). The Hungarian matrix
-//     // is built over ONLY these columns, so its width shrinks to the contested detections
-//     // rather than spanning all of next_targets. hungarian_cols[local_col] -> real col.
-//     std::vector<int> hungarian_cols;
-//     for ( int c = 0; c < next_size; c++ ) {
-//         if ( !next_targets_used[c] ) { hungarian_cols.push_back(c); }
-//     }
-
-//     // Build the 2D linear assignment matrix over the trimmed (deferred rows) x
-//     // (undetermined columns) sub-problem. Each row pulls only the weights at the
-//     // surviving columns, in hungarian_cols order, so row[local_col] corresponds to
-//     // hungarian_cols[local_col] in the real next_targets indexing.
-//     std::vector<std::vector<int>> proximity_matrix;
-//     for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
-//         std::vector<int> full_row = (*prev_targets)[ hungarian_rows[r] ]->getProximity()->getWeights();
-//         std::vector<int> trimmed_row;
-//         trimmed_row.reserve(hungarian_cols.size());
-//         for ( size_t lc = 0; lc < hungarian_cols.size(); lc++ ) {
-//             trimmed_row.push_back( full_row[ hungarian_cols[lc] ] );
-//         }
-//         proximity_matrix.push_back( trimmed_row );
-//    }
-
-//     // Execute Hungarian Optimizer on the trimmed matrix (may be empty -> no-op).
-//     std::vector<int> col_from_row = hungarianAlgorithm(proximity_matrix);
-
-//     // Evaluate associations assigned to each DEFERRED historical trace entry.
-//     // r indexes the trimmed matrix rows; hungarian_rows[r] maps back to the prev_target,
-//     // and hungarian_cols[local_col] maps the solver's column back to the real next_target.
-//     for ( size_t r = 0; r < hungarian_rows.size(); r++ ) {
-//         int j = hungarian_rows[r];
-//         int local_col = col_from_row[r];
-
-//         // Safeguard against rectangular padding indexes produced by the optimizer
-//         // (padding columns have no entry in the trimmed column map).
-//         if ( local_col < 0 || local_col > (int)hungarian_cols.size() - 1 ) {
-//            continue;
-//         }
-
-//         // Translate the solver's local column back into the real next_targets index.
-//         int connect_index = hungarian_cols[local_col];
-
-//         // Branching check: If error variance exceeds threshold, do not connect
-//         if ( (*prev_targets)[j]->getProximity()->getVertexWeight(connect_index) > THRESHOLD) {
-//             continue;
-//         } else {
-//             // Valid track association: Tie linked lists together across frames
-//             (*prev_targets)[j]->setNextInstancePtr( (*prev_targets)[j]->getProximity()->getVertexPtr(connect_index) );
-//             (*prev_targets)[j]->getNextInstancePtr()->setPrevInstancePtr( (*prev_targets)[j] );
-            
-//             // Forward identity attributes down the matched track line
-//             (*prev_targets)[j]->getNextInstancePtr()->setID( (*prev_targets)[j]->getID() );
-            
-//             // Mark destination node as handled
-//             next_targets_used[connect_index] = 1;
-            
-//             // Overwrite master registry pointer to point to the newest active instance
-//             (*full_list)[(*prev_targets)[j]->getNextInstancePtr()->getID()] = (*prev_targets)[j]->getNextInstancePtr();
-//         }
-//     }
-
-//     // Update kalman filter velocity estimate prior to calculating median velocity
-//     updateEstimate();
-
-//     // Prior to cleanup pass, determine median velocity
-//     determineRelevantTargets();
-//     calculateMedianVelocity();
-
-//     // Cleanup pass: Unassigned elements in the new frame are spawned as fresh tracking sources
-//     for (size_t i = 0; i < next_targets->size(); i++) {
-//         if ( next_targets_used[i] == true ) {
-//             continue; // Node already successfully bound to a previous path
-//         } else {
-//             std::vector<float> estimated_velocity = getMedianTargetVelocity();
-//             initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]); // Brand new detection, initialize path history
-//         }
-//     }
-// }
 void Selector::connect() {
     int prev_size = prev_targets->size();
     int next_size = next_targets->size();
@@ -683,74 +628,6 @@ void Selector::connect() {
             initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]);
         }
         return;
-    }
-
-    // ------------------------------------------------------------------
-    // Spatial binning along the Y axis.
-    //
-    // Objects travel parallel to X, so a track and its next-frame detection stay
-    // in nearly the same Y band. We partition BOTH prev and next targets into
-    // horizontal strips and solve each strip as an independent assignment problem.
-    // This replaces one O(N^2 * M) Hungarian solve with B smaller independent
-    // solves, which are also run in parallel.
-    //
-    // Band height is tied to THRESHOLD: a valid match's weight is a scaled distance
-    // (see Graph::calcWeight -> distance*10 blended), so two targets that could ever
-    // match must be within ~THRESHOLD/10 pixels in Y. Making each band at least that
-    // tall means a real match can span at most two adjacent bands; the one-band
-    // overlap below covers that boundary case so no legitimate match is lost.
-    // ------------------------------------------------------------------
-
-    // Determine the Y-range actually occupied by targets this frame (no frame-height
-    // dependency needed -- derived straight from the data).
-    float y_min =  1e9f, y_max = -1e9f;
-    for (int j = 0; j < prev_size; j++) {
-        float y = (*prev_targets)[j]->getNy(); // predicted position is where prev expects to land
-        if (y < y_min) y_min = y;
-        if (y > y_max) y_max = y;
-    }
-    for (int c = 0; c < next_size; c++) {
-        float y = (*next_targets)[c]->getY();
-        if (y < y_min) y_min = y;
-        if (y > y_max) y_max = y;
-    }
-
-    // Band height: at least the max plausible match distance in Y, so real matches
-    // never straddle more than two bands. THRESHOLD is in the *weighted* space
-    // (distance*10), so divide back out. Guard against degenerate tiny values.
-    float band_h = static_cast<float>(THRESHOLD) / 10.0f;
-    if (band_h < 1.0f) band_h = 1.0f;
-
-    float span = y_max - y_min;
-    if (span < 0.0f) span = 0.0f;
-    int num_bands = static_cast<int>(span / band_h) + 1;
-    if (num_bands < 1) num_bands = 1;
-
-    // Assign each prev/next target to its band index by Y.
-    auto band_of = [&](float y) -> int {
-        int b = static_cast<int>((y - y_min) / band_h);
-        if (b < 0) b = 0;
-        if (b >= num_bands) b = num_bands - 1;
-        return b;
-    };
-
-    // Bucket target indices per band. We duplicate each PREV target into its own band
-    // AND the adjacent band toward which its predicted motion in Y points, so a match
-    // that straddles a boundary is still found. NEXT targets live in exactly one band.
-    std::vector<std::vector<int>> prev_bins(num_bands);
-    std::vector<std::vector<int>> next_bins(num_bands);
-
-    for (int c = 0; c < next_size; c++) {
-        next_bins[ band_of((*next_targets)[c]->getY()) ].push_back(c);
-    }
-    for (int j = 0; j < prev_size; j++) {
-        int b = band_of((*prev_targets)[j]->getNy());
-        prev_bins[b].push_back(j);
-        // One-band overlap guard: also let this prev compete in the neighboring band
-        // it sits closest to, so boundary-straddling matches aren't dropped.
-        float local = ((*prev_targets)[j]->getNy() - y_min) - b * band_h;
-        if (local < band_h * 0.5f && b - 1 >= 0)        prev_bins[b - 1].push_back(j);
-        else if (local >= band_h * 0.5f && b + 1 < num_bands) prev_bins[b + 1].push_back(j);
     }
 
     // Per-band results are written into these shared, pre-sized arrays. Index by the
@@ -776,7 +653,7 @@ void Selector::connect() {
         std::vector<std::vector<int>> band_matrix(rows.size(),
                                                   std::vector<int>(cols.size(), 0));
         for (size_t lr = 0; lr < rows.size(); lr++) {
-            std::vector<int> full_row = (*prev_targets)[ rows[lr] ]->getProximity()->getWeights();
+            const std::vector<int>& full_row = (*prev_targets)[ rows[lr] ]->getProximity()->getWeights();
             for (size_t lc = 0; lc < cols.size(); lc++) {
                 band_matrix[lr][lc] = full_row[ cols[lc] ];
             }
@@ -893,11 +770,18 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
     // y_next  = 0*x  + 1*y  + 0*vx + 1*vy
     // vx_next = 0*x  + 0*y  + 1*vx + 0*vy
     // vy_next = 0*x  + 0*y  + 0*vx + 1*vy
-    KF.transitionMatrix = (cv::Mat_<double>(4,4) << 1.0,0.0,1.0,0.0, 0.0,1.0,0.0,1.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);
+    static const double tMat[] = {
+        1.0, 0.0, 1.0, 0.0,
+        0.0, 1.0, 0.0, 1.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    };
+    KF.transitionMatrix = cv::Mat(4, 4, CV_64F, const_cast<double*>(tMat)).clone();
 
     // Define Measurement Matrix (H) to isolate observed variables:
     // Extracts directly measured position [x, y] from the 4D state vector
-    KF.measurementMatrix = (cv::Mat_<double>(2,4) << 1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0);
+    static const double mMat[] = {1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0};
+    KF.measurementMatrix = cv::Mat(2, 4, CV_64F, const_cast<double*>(mMat)).clone();
 
     // Tune filter noise models
 
@@ -955,4 +839,3 @@ void Selector::updateEstimate() {
         }
     }
 }
-
