@@ -1,19 +1,19 @@
 /////////////////////////////////////////////////////////////
+
 /*
 Code Summary:
-Takes in a singular image and using member functions this class (and associated functions) helps to find targets in distinct phases.
-1.) filter() --> uses OpenCV pre-processing functions including operations: blur, background subtraction, thresholding, dilating,
-and contour framing to prepare any given frame for extracting and identifying contours of moving regions/objects in the next step.
-2.) contours() --> uses either OpenCV function findContours() or other researched method to create a framework/array of different contours
-and to create arrays of points and then arrays of contours to help organize original visualization of regions of movement and objects being tracked.
-3.) scan() --> Note: this will be the "parent" member function of both filter() and contours() and these will run inside of the scan function.
-The other functionality of this function besides using the processes defined above for filter() and contours() is creating the memory allocation 
-for for each instance of the target class that is passed in and identified in each image. Additionally, for each contour make a target and populate
-the entirety of the target properties (i.e x,y, size, ID, nx, ny e.t.c). 
+Takes in a single image frame and utilizes class member functions to identify and process targets across distinct phases. 
+Note: The Detector is now stateless with respect to target identity (ID tracking has been moved to the Selector).
 
-Author: Graeme Appel
+1.) Calibration (startCalibration & calibrateBackgroundNoise) --> Analyzes initial frames to determine the global background noise mode via histogram tallying, establishing a baseline to subtract from future frames.
+2.) filter() --> Utilizes OpenCV CUDA acceleration and shared host memory to efficiently apply GPU-based preprocessing: grayscale conversion, background subtraction, binary thresholding, and morphological dilation.
+3.) contours() --> Uses cv::findContours() to extract external bounding boxes and contour point arrays. Filters out noise by enforcing MAX and MIN pixel size limits to isolate relevant objects (e.g., small orbital debris).
+4.) computeCentroid() --> Iterates through the clamped Region of Interest (ROI) for each bounding box to calculate a highly precise, intensity-weighted sub-pixel center of mass based on grayscale pixel brightness.
+5.) scan() --> The "parent" function that coordinates the pipeline. It manages initial calibration, executes the GPU filter and contour extraction, and utilizes OpenMP multithreading to concurrently instantiate and populate raw Target objects (x/y centroid, size, frame number) for the current frame.
 
-Last Updated: 6/23/2026
+Author: Graeme Appel with later modifications made by Zachary Dyre (initCudaFilters and get functions)
+
+Last Updated: 7/30/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -29,13 +29,19 @@ Last Updated: 6/23/2026
   with respect to identity and only reports raw detections each frame.
 
      Class Properties:
-     1.) end_calibration_period   = frame index at which background-noise calibration stops
-     2.) global_background_noise  = current estimated background brightness to subtract
-     3.) current_frame_num        = the frame index most recently handed to scan()
+     1.)  current_frame_num = the frame index most recently handed to scan()
+
+     2.) end_calibration_period == variable that determines the total number of frames used to determine and later remove 
+     the global background noise. This is initialized to 0 and later modified in the startCalibration() member function. 
+     This number can also be altered in the same function if needed.
+
+     3.) global_background_noise == double variable that tracks the global background brightness (between 0 - 255) that should
+      be subtracted to add picture clarity across frames. This number is determined using the calibrateBackgroundNoise() member function
 */
 
+/////////////////////////////////////////////////////////////
 
-// Constructor (Equivalent to Python's __init__)
+// Constructor 
 Detector::Detector( int blur_size, int thresh_margin, int dilation_iter, int contour_size ) {
     BLUR_KERNEL_SIZE = blur_size;
     BG_THRESHOLD_MARGIN = thresh_margin;
@@ -66,8 +72,9 @@ Detector::Detector() {
     initCudaFilters();
 }
 
+/////////////////////////////////////////////////////////////
 
-/* Function initCudaFilters()
+/* 1.) Function initCudaFilters()
  * description:
  *  Constructs the reusable CUDA filter primitives (median blur + dilation) from the
  *  current control parameters. Called once per Detector from each constructor so the
@@ -81,6 +88,8 @@ Detector::Detector() {
  *  cv::Mat() kernel defaults to a 3x3 rect with center anchor. iterations is baked in
  *  here rather than passed per-call.
  */
+
+ /////////////////////////////////////////////////////////////
 void Detector::initCudaFilters() {
 
     // Median blur operates on CV_8UC1 (grayscale). Window size must be odd; the
@@ -94,25 +103,7 @@ void Detector::initCudaFilters() {
         cv::MORPH_DILATE, CV_8UC1, dilate_kernel, cv::Point(-1, -1), DILATION_ITERATIONS);
 }
 
-// Member functions (same as described at the top of the code)
-
-// startCalibration() member function
-
-/*
- Function summary: Uses the current frame count inside of the sentry class (which starts from when the camera stream starts running) 
- and adds a thresholding number (defined arbitrarily for now) to create an integer variable which will determine the number of frames 
- used in the next function to determine an overall global background noise. This will be passed into the next function which will use 
- this variable to loop through and average global background noise until reaching the limit defined by this function.
-
-NOTE: if the background of a region that the cubesat is viewing changes drastically, this function will be called again to set a new 
-global background noise value to be subtracted.
-
- Inputs:
- None - it reads the member current_frame_num (set via setFrameNum / scan) rather than taking an argument.
-
- Outputs:
- None - sets end_calibration_period and resets global_background_noise to 0.
-*/
+// Necessary Get Functions to setup CudaFilters and other necessary parameters
 
 // Sets the medianBlur kernel size
 void Detector::setBlurKernelSize(int blur_size) {
@@ -167,21 +158,45 @@ int Detector::getFrameNum() {
 // Returns the current estimated background-noise brightness level
 double Detector::getBackgroundNoise() {
     return global_background_noise;
-}
 
+}
+/////////////////////////////////////////////////////////////
+
+// Member functions (same as described at the top of the code)
+
+// 2.) startCalibration() member function
+
+/*
+ Function summary: Uses the current frame count inside of the sentry class (which starts from when the camera stream starts running) 
+ and adds a thresholding number (defined arbitrarily for now) to create an integer variable which will determine the number of frames 
+ used in the next function to determine an overall global background noise. This will be passed into the next function which will use 
+ this variable to loop through and average global background noise until reaching the limit defined by this function.
+
+NOTE: if the background of a region that the cubesat is viewing changes drastically, this function will be called again to set a new 
+global background noise value to be subtracted.
+
+ Inputs:
+ None - it reads the member current_frame_num (set via setFrameNum / scan) rather than taking an argument.
+
+ Outputs:
+ None - sets end_calibration_period and resets global_background_noise to 0.
+*/
+
+/////////////////////////////////////////////////////////////
 
 void Detector::startCalibration() {
 
-    // Calibrate over the next 2 frames (current_frame_num up to end_calibration_period - 1).
-    // The "+2" window length is arbitrary for now and could be promoted to a parameter later
-    // if calibration needs to span more or fewer frames.
-    end_calibration_period = current_frame_num + 2;
+    end_calibration_period = current_frame_num + 2; // Calibrate over the next 2 frames (current_frame_num up to end_calibration_period - 1).
+                                            // The "+2" window length is arbitrary for now and could be promoted to a parameter later
+                                            // if calibration needs to span more or fewer frames.
 
     // Reset the running estimate so the upcoming calibration frames start fresh.
-    global_background_noise = 0.0;
+    global_background_noise = 0.0;                                         
 }
 
-// calibrateBackgroundNoise() member function
+/////////////////////////////////////////////////////////////
+
+// 3.) calibrateBackgroundNoise() member function
 
 /*
  Function summary: Estimates the background brightness of the current frame and stores it
@@ -192,14 +207,18 @@ void Detector::startCalibration() {
  faint background texture is also subtracted away. This runs once per calibration frame
  (frames before end_calibration_period); the last call's value is the one used.
 
- Inputs:
+ Inputs: 
  1.)  frame = "newest" frame of the camera view for tracking
 
  Outputs:
- 1.)  global_background_noise == estimated background brightness (mode intensity + 5)
+ 1.)  global_background_noise == overall global background noise averaged over X number of frames determined by the threshold in the previous function; 
+                                 estimated background brightness (mode intensity + 5).
 */
 
+/////////////////////////////////////////////////////////////
+
 void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
+
 
         cv::Mat mono, blur;// thresh_temp, bg_mask; // makes a container of objects to store the modified filtered frame for each stage (basically preallocating)
 
@@ -218,6 +237,8 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
         // Build an intensity histogram (0..255) by tallying how many pixels have each
         // grayscale value across the whole blurred frame.
+        
+        // Uses OpenMP parallelization to speed up histogram generation across frame rows
         int histogram[256] = {0};
         #pragma omp parallel for reduction(+:histogram[:256])
         for (int r = 0; r < blur.rows; r++) {
@@ -254,11 +275,13 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 }
 
 
+/////////////////////////////////////////////////////////////
 
-// filter() member function
+// 4.) filter() member function
 
 /*
-Function summary: at top of code
+Function summary: at top of code but repasted here:  uses OpenCV pre-processing functions including operations: blur, background subtraction, thresholding, dilating,
+and contour framing to prepare any given frame for extracting and identifying contours of moving regions/objects in the next step. All specific steps are detailed more below.
 
 Inputs: 
 1.) frame = "newest" frame of the camera view for tracking
@@ -266,7 +289,22 @@ Inputs:
 Outputs:
 1.) dilated = fully filtered image that is now blurred, black and white, with removed/thresholded pixels that are expanded to most fully identify objects
 */
-cv::Mat Detector::filter(const cv::Mat& frame) {
+
+/////////////////////////////////////////////////////////////
+
+// Data type of return variable is cv::Mat which takes in an image, processing its pixels and outputs an a processed image
+cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an image matrix and we pass by reference so that no new copies of the image are created in storage which would lower frame rate
+
+
+  // The image processing pipeline now relies on GPU acceleration (CUDA) mapped to shared memory buffers.
+
+  // Stages:
+  // 1.) Shared Memory Check: Allocates cv::cuda::HostMem blocks if they haven't been created yet to allow zero-copy host-to-device transfers.
+  // 2.) Device Mapping: Maps the CPU frame directly to the GPU (d_in) avoiding expensive deep copies.
+  // 3.) Grayscale Conversion: Converts the mapped GPU frame to single-channel (d_mono) using cv::cuda::cvtColor.
+  // 4.) Background Subtraction: Subtracts the global_background_noise scalar from the mono frame on the GPU (d_cleaned).
+  // 5.) Thresholding: Applies a binary threshold to isolate moving pixels above the background margin (d_thresh).
+  // 6.) Dilation: Applies the pre-initialized CUDA dilation filter to bridge gaps in the contours (d_out).
 
     // Lazily allocate the shared buffers once we know the frame geometry.
     // Reused every subsequent frame -> zero per-frame allocation.
@@ -314,7 +352,10 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
     return h_dilated_shared.createMatHeader();//.clone(); // .clone was old and is probably not needed
 }
 
-// contours() member function
+
+/////////////////////////////////////////////////////////////
+
+// 5.) contours() member function
 
 /*
     contours() -- contours function will later be used in the Scan function so it is placed here first -- explained above
@@ -334,6 +375,8 @@ cv::Mat Detector::filter(const cv::Mat& frame) {
 
     // Note: In C++ in order to return 2 variables by a function as is done in the python script before this you must use std::pair, or by passing references.
     
+/////////////////////////////////////////////////////////////
+
 std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::contours(const cv::Mat& dilated) {
     
 
@@ -358,15 +401,16 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
                                                 // const makes sure that the contours do not change inside the loop which can prevent errors 
         double size = cv::contourArea(contour); // uses contourArea to return total number of pixels (i.e size) that each contour/bounding box envelopes
 
-        if ( size < MAX_CONTOUR_SIZE && size > MIN_CONTOUR_SIZE ) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
+        if (size < MAX_CONTOUR_SIZE && size > MIN_CONTOUR_SIZE) { // sets parameter (size limit) for size to see where contours are made. In this case, all objects less than 1000 total pixels --> this is done with the intent of seeking out mostly small objects as small orbital debris is the main concern of our cubeSat.
 
             // Creates a bounding rectangle around the contour
-            cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes
+            // Only uncomment if wanting to see the overall bounding boxes for each object displayed in frame -- not that this will make the realtime viewing experience much slower
+            // cv::Rect rect = cv::boundingRect(contour); // boundingRect reads through all (x,y) coordinates in a given contour and finds the leftmost and uppermost x,y coordinate and also width and height to make bounding boxes
                                                         // creates a rect data type to store the bounding box temporarily for each contour
 
             // Draw the rectangle on the original frame
             // Color: Green (0, 255, 0), Thickness: 2
-            //cv::rectangle(frame, rect, cv::Scalar(0, 255, 0), 2); // creates a rectangle on the given frame using the previously defined rect object. Makes it green with thickness of 2
+            cv::rectangle(frame, rect, cv::Scalar(0, 255, 0), 2); // creates a rectangle on the given frame using the previously defined rect object. Makes it green with thickness of 2
 
             // Store elements in our vector of structs
             box_dims.push_back({rect.x, rect.y, rect.width, rect.height, size}); // push_back does the same as the append function in python and pushes each new element to the end of the box_dims vector set of custom dimensions defined in the struct above.
@@ -376,8 +420,91 @@ std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>> Detector::co
     return std::make_pair(contours_list, box_dims); // returns both list of each contour as well as bounding box dimensions for each specific contour (x and y will be extracted from this for input into each target instance)
 }
 
+// 6.) computeCentroid() member function
 
-// scan() Function -- "parent" function of the previous two member functions
+/*
+ Function summary: Calculates the intensity-weighted centroid (center of mass) of a detected object
+ within a bounding box. Instead of simply taking the geometric center of the box, it iterates over 
+ the pixels in the Region of Interest (ROI) and computes the weighted average of X and Y coordinates 
+ based on pixel brightness. This provides a more accurate sub-pixel center for irregular shapes.
+
+ Inputs:
+ 1.) mono = single-channel (grayscale) image frame.
+ 2.) x, y = starting top-left coordinates of the bounding box.
+ 3.) w, h = width and height of the bounding box.
+
+ Outputs: 
+ 1.) std::vector<float> = a 2-element vector containing the precise [x, y] sub-pixel centroid coordinates.
+
+ */ 
+
+/////////////////////////////////////////////////////////////
+
+std::vector<float> Detector::computeCentroid(const cv::Mat& mono, int x, int y, int w, int h) {
+
+    // if there is no grayscale image frame detected in the mono object then return zeros for each x and y centroid coordinates as they are not relevant.
+    if (mono.empty()) {
+        return {0.0, 0.0};
+    }
+
+    // Set the Region of Interest (ROI) to the image/boundary box boundaries as defined previously in the contours function
+    int startX = std::max(0, x); // sets the leftmost boundary of a given frame so that "if a bounding box starts off screen it will start reading x positions starting from the leftmost side of the frame"
+    int startY = std::max(0, y); // sets topmost boyndary of a given frame so that "..."
+
+    int endX = std::min(mono.cols, x + w); // sets rightmost boundary of a given frame by adding frame width so that "..."
+    int endY = std::min(mono.rows, y + h); // sets bottom-most boundary of a given frame by adding frame height so that "..."
+
+    // initialize necessary accumulator variables
+    float sumI = 0.0; // The total Intensity (brightness) of all pixels added together. Think of this as the total "mass" of the object.
+    float sumX = 0.0; // The running total of every pixel's X-coordinate multiplied by that pixel's brightness.
+    float sumY = 0.0; // The running total of every pixel's Y-coordinate multiplied by that pixel's brightness.
+
+    // loops through every single pixel inside the Region of Interest (ROI) to calculate the object's intensity-weighted center of mass.
+    for (int row = startY; row < endY; ++row) // This is the outer loop. It scans the bounding box vertically, starting from the top edge (startY) and moving down row by row to 
+                                              // the bottom edge (endY). In image processing, the row corresponds to the Y-coordinate.
+    {
+        const uint8_t* pRow = mono.ptr<uint8_t>(row); // This is a critical performance optimization. Instead of asking OpenCV to calculate the memory address of every single pixel individually (which is slow), this 
+                                                      // line grabs a direct memory pointer to the very beginning of the current row. uint8_t tells the compiler to expect standard 8-bit grayscale pixel values (where brightness ranges from 0 to 255).
+
+        for (int col = startX; col < endX; ++col) // This is the inner loop. For the current row, it scans horizontally from the left edge (startX) to the right edge (endX). The col corresponds to the X-coordinate.
+        {
+            float I = static_cast<float>(pRow[col]); // This line extracts the actual brightness (intensity) of the specific pixel being looked at.
+                                                     // pRow[col] uses the fast memory pointer to grab the 8-bit value.
+                                                     // static_cast<float>(...) converts that whole number into a decimal (float) so the subsequent math calculations are precise and don't accidentally truncate.
+
+            sumI += I; // This adds the current pixel's brightness to the running total. This represents the total "mass" of the detected object.
+            sumX += col * I; // This calculates the pixel's "pull" on the X-axis. By multiplying the X-coordinate (col) by the brightness (I), a very bright pixel will pull the final calculated center of mass much closer to its own X-position than a dim pixel would.
+            sumY += row * I; //This does the exact same calculation as the previous line, but for the Y-axis. It multiplies the Y-coordinate (row) by the brightness (I) to calculate the vertical pull of that specific pixel.
+        }
+    }
+
+    // If there is no intensity in the ROI, return its center
+    if (sumI <= 0.0) // checks if the total intensity ("mass") of the pixels inside the bounding box is zero. This would only happen if every single pixel inside the region was completely black.
+    {
+        // If sumI is equal to 0 or negative then the later centroiding calculation becomes either impossible (undefined) or a negative number which would return an error
+        // Instead, the following lines return the center of a given bounding box as the object centroid if sumI is <= 0
+        float tempX = startX + (endX - startX) / 2.0; 
+        float tempY = startY + (endY - startY) / 2.0;
+        return
+        {
+            tempX,
+            tempY
+        }; // This returns that safe, geometric middle coordinate if the failsafe was triggered, ending the function early.
+    }
+
+    return
+    {
+
+        //  final computations of center of mass formulas given by:
+        // Centroid_x = sumX / sumI          and           Centroid_y = sumY / sumI  
+        sumX / sumI, 
+        sumY / sumI
+    };
+}
+
+/////////////////////////////////////////////////////////////
+
+// 7.) scan() Function -- "parent" function of the previous two member functions
 
 /*
 
@@ -394,60 +521,10 @@ Outputs:
 
 */
 
-// Computes centroid of a rectangle defined by (x,y,w,h) from the input frame
-// Precondition: `mono` is single-channel CV_8UC1. Caller converts once
-// (in scan()) rather than this running per-contour.
-std::vector<float> Detector::computeCentroid(const cv::Mat& mono, int x, int y, int w, int h) {
-    if (mono.empty()) {
-        return {0.0, 0.0};
-    }
-
-    // Clamp the ROI to the image boundaries
-    int startX = std::max(0, x);
-    int startY = std::max(0, y);
-
-    int endX = std::min(mono.cols, x + w);
-    int endY = std::min(mono.rows, y + h);
-
-    float sumI = 0.0;
-    float sumX = 0.0;
-    float sumY = 0.0;
-
-    for (int row = startY; row < endY; ++row)
-    {
-        const uint8_t* pRow = mono.ptr<uint8_t>(row);
-
-        for (int col = startX; col < endX; ++col)
-        {
-            float I = static_cast<float>(pRow[col]);
-
-            sumI += I;
-            sumX += col * I;
-            sumY += row * I;
-        }
-    }
-
-    // If there is no intensity in the ROI, return its center
-    if (sumI <= 0.0)
-    {
-        float tempX = startX + (endX - startX) / 2.0;
-        float tempY = startY + (endY - startY) / 2.0;
-        return
-        {
-            tempX,
-            tempY
-        };
-    }
-
-    return
-    {
-        sumX / sumI,
-        sumY / sumI
-    };
-}
-
+///////////////////////////////////////////////////////////// 
 
 void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num) {
+
 
     // Convert the frame to grayscale a SINGLE time before the parallel loop.
     // If the camera is Mono8 this is a no-op shallow reference; if color, one
@@ -459,10 +536,13 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
         cv::cvtColor(frame, mono_frame, cv::COLOR_BGR2GRAY);
     }
 
+
     // initializer for the calibration process
     if (frame_num == 0) {
-        startCalibration();
+
+    startCalibration();
     } 
+
     setFrameNum(frame_num);
 
     // Call the calibrate background noise function if the current frame number is less than the end_calibration_period limit
@@ -479,19 +559,16 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
     auto [contours_list, box_dims] = contours(frame_dilated); // note, in this case auto is easier than its equivalent: std::pair<std::vector<std::vector<cv::Point>>, std::vector<BoxDim>>
 
     // Loop through all box dimensions for each different contour identified to extract x and y centroid position and size for input into each target instance
-    int size = box_dims.size();
+      int size = box_dims.size();
     targets.resize(size);
+
+    // Uses OpenMP parallelization/multithreading to create and populate target instances concurrently for better performance
     #pragma omp parallel for
     for (int i = 0; i < size; i++) { 
 
         auto& box = box_dims[i];
 
-        // define centroid position. Note that each default x and y position is at the top left corner of a given object. 
-        // By adding width/2 and height/2 of the given bounding box to the x and y dimensions (situated in the upper left corner) 
-        // we center each x and y position in the center/centroid of each box
-
-        // int x_centr_pos = box.x + (box.w / 2); 
-        // int y_centr_pos = box.y + (box.h / 2);
+        // define centroid position using the before defined light intensity centering function computeCentoid() as defined above
         std::vector<float> centroid = computeCentroid(mono_frame, box.x, box.y, box.w, box.h);
 
         // Construct new instance of target. Unassigned values default to std::nullopt as defined in the target class (this is basically the same as assigning to NONE equivalently in Python)
@@ -502,3 +579,4 @@ void Detector::scan(cv::Mat& frame, std::vector<Target*>& targets, int frame_num
     }
 
 }
+
