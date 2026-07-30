@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <omp.h>
+#include <algorithm>
+#include <climits>
 #include "Target.hpp"
 
 class Graph {
@@ -50,7 +52,7 @@ public:
 
     std::vector<Target*> getTargets();
 
-    std::vector<int> getWeights();
+    const std::vector<int>& getWeights() const { return weights; }
 
 
     void addVertex(Target*);
@@ -62,6 +64,8 @@ public:
     void addVerticesFromList(const std::vector<Target*>& next_targets, const std::vector<int>& weight); // new
 
     void calcWeight(float gain1);
+
+    void calcWeightBanded( float gain1, const std::vector<int>& cols );
 
     void calcWeightOMP(float gain1);
 

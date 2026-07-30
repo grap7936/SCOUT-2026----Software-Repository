@@ -9,7 +9,7 @@ using namespace VmbCPP;
 
 int main() {
 
-    CameraWrapper cam;
+    CameraWrapper cam(10);
 
     cv::Mat frame;
 

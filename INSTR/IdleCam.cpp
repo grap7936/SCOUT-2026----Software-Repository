@@ -13,9 +13,11 @@
 
 using namespace VmbCPP;
 
+const float FPS = 79.0;
+
 int main() {
 
-    CameraWrapper cam;
+    CameraWrapper cam(FPS);
 
     // Set parallelization thread count
     omp_set_num_threads(4);
