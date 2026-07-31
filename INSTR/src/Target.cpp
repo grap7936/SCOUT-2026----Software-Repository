@@ -35,7 +35,7 @@ inside the Selector class.
  * returns:
  *  none - constructs the object in place.
  */
-Target::Target(float x, float y, int size) {
+Target::Target(float x, float y, int size) { // data structure that defines and returns all necessary variables
     this->x = x;
     this->y = y;
     this->size = size;

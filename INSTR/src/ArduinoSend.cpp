@@ -1,6 +1,8 @@
 /////////////////////////////////////////////////////////////
 /*
 
+NOTE: This script cannot run on its own in VS code or any standalone environment on a computer but must be run inside a linux environment such as realVNC viewer or in conjunction with the Jetson to Arduino Connection in a relevant command terminal such as powershell.
+
 NOTE: Most lines of text (i.e std::cout) are to be used for debugging purposes only as if all of them are included in video processing the system will be very very very slow
 Uncomment lines as necessary to debug, but the default should leave them all commented out for optimized performance. 
 
@@ -9,8 +11,11 @@ Data is sent in the format: ID, x, y for if needing to view numbers for each tar
 Code Summary:  This code details the Jetson side of the Jetson to Arduino serial UART connection. This code has many functions. InitializePort() works to set up the serial connection between the Jetson and Arduino as well as enabling it to be seen by the user in realVNC viewer.
                sendTargetCoordinates() is the main function that sends the x and y coordinates of the detected debris to the Arduino for processing. It also has a built in read function that reads the telemetry data sent back from the Arduino to the Jetson.
                This is used to verify that the Arduino is receiving and processing the data correctly. readMotorPosition() receives the motor angle position from the ArduinoReceive end and takes in this information to later be stored inside of a text file using the logTelemetry fucnction.
-               logTelemetry stores all desired data inside a text file which will be created using the main script of all of these codes and will likely be operated using the driver.sh master script.
+               logTelemetry() stores all desired data inside a text file which will be created using the main script of all of these codes and will likely be operated using the driver.sh master script.
 
+To understand both the sending and receiving side of the code, necessary scripts to reference are:
+Sending/Jetson side: "ArduinoSend.cpp", "ArduinoSend.hpp", "testingArduinoMain.cpp"
+Receiving side: "ReceiveEnd_Arduino.cpp", "ReceiveEnd_Arduino.hpp"
 
 Author: Graeme Appel
 
@@ -50,7 +55,7 @@ ArduinoSend::~ArduinoSend() {
 /* 1.) initializePort() function
 
 Function description: This function initializes the serial port connection between the Jetson and Arduino. It sets the baud rate, data format, and other parameters necessary for communication.
- All of the specific parameters and specifications for setting up the system in linux are also here and also viewing inside of realVNC viewer or similar softwares to this is also defined and established here.
+All of the specific parameters and specifications for setting up the system in linux are also here and also viewing inside of realVNC viewer or similar softwares to this is also defined and established here.
 
 Inputs: 
 None
@@ -179,6 +184,10 @@ bool ArduinoSend::sendTargetCoordinates(uint16_t id, int16_t x, int16_t y) {
     // waiting for readMotorPosition() to consume it!
     return true; 
     }
+
+
+    // Only uncomment the following block if needing to examine telemetry sent from the Arduino to the Jetson regarding Frame and Motor Position number explicity in the command console -- note that if uncommenting this code, it should only serve diagnostic purposes
+    // as it will make the system WAY slower per frame due to all of the command console print outputs and is thus not suitable for real time tracking and logging of data
 
     // Dynamic if-statement to optimize communication frequency
     // In order to view functionality of the program in VNC viewer, we must read and output to the VNC viewer console what would normally be output by the serial window on the Arduino side so that is what is going to be implemented next here
@@ -331,9 +340,10 @@ Outputs:
 std::string ArduinoSend::readStringResponse() {
     if (serial_fd == -1) return "Error: Serial port not open."; // Safety check
 
+    // Create an array of 256 characters (bytes) full of useless info that will be overwritten
     std::string response = "";
     char read_buffer[256];
-    memset(read_buffer, 0, sizeof(read_buffer)); 
+    memset(read_buffer, 0, sizeof(read_buffer)); // makes all 256 slots in char array become \0 which indicates the end of a string/text when using std::cout -- this makes sure printing and organizing works well
 
     int bytes_read = 0;
     
@@ -345,10 +355,10 @@ std::string ArduinoSend::readStringResponse() {
     }
 
     if (response.empty()) {
-        return "[WARNING] No string data found in buffer.";
+        return "[WARNING] No string data found in buffer."; // return an error if there is no relevant data in the buffer being sent over from the Arduino side
     }
 
-    return response;
+    return response; // return relevant string messages sent from the Arduino side
 }
 
 

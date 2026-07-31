@@ -1,8 +1,21 @@
+/////////////////////////////////////////////////////////////
+/*
+
+Code Summary:  Runs all necessary functions for debris detection and tracking as well as serial UART communication between the Jetson and Arduino.
+
+Author: Zachary Dyre, Graeme Appel
+
+Last Updated: 7/31/2026
+*/
+
+/////////////////////////////////////////////////////////////
+
+
 #include <iostream>
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include <omp.h>
-#include <VmbCPP/VmbCPP.h> // Vimba X include
+#include <VmbCPP/VmbCPP.h> // Vimba X include -- library for the camera that handles talking to the camera
 #include "CameraWrapper.hpp"
 #include "KeyInput.hpp"
 #include "Graph.hpp"
@@ -16,18 +29,21 @@
 
 using namespace VmbCPP;
 
+
+// necessary function declarations
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny);
 
 const float FPS = 50.0; // defined by user, Alvium Camera Max FPS is 79.0
 
 void setupArduino(ArduinoSend& sender);
 
+// checks if the Jetson has a screen to display to so that it won't try to display the video stream unless there is an actual way to do so via a monitor or VNC connection
 bool hasDisplay() {
     const char* d = std::getenv("DISPLAY");
     return d != nullptr && d[0] != '\0';
 }
 
-static const bool GUI = hasDisplay();
+static const bool GUI = hasDisplay(); // runs function to get a constant variable to determine if there is a display
 
 int main() {
 
@@ -39,17 +55,20 @@ int main() {
 
     std::ofstream All_Target_Data;
     All_Target_Data.open(TARGET_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    // adds text to the beginning of the designated text file to enable ease of functionality and accessing each file by variable name using the readtable() in MATLAB
     All_Target_Data << "id, x,y, kx,ky, vx,vy, score\n";
     All_Target_Data.close();
     
     
     std::ofstream Debris_Data;
     Debris_Data.open(DEBRIS_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    // adds text to the beginning of the designated text file to enable ease of functionality and accessing each file by variable name using the readtable() in MATLAB
     Debris_Data << "frame_num, id, x,y, kx,ky, vx,vy, score\n";
     Debris_Data.close();
 
     std::ofstream Motor_Data;
     Motor_Data.open(MOTOR_LOG_FILENAME); // opens/creates necessary text file for inputting data into
+    // adds text to the beginning of the designated text file to enable ease of functionality and accessing each file by variable name using the readtable() in MATLAB
     Motor_Data << "frame_num, motor_pos, gap\n";
     Motor_Data.close();
 
@@ -66,9 +85,9 @@ int main() {
     // Initialize camera
     CameraWrapper cam(FPS);
 
-    // set parallelization thread count
-    omp_set_num_threads(4);
-    cv::setNumThreads(1);
+    // set parallelization thread count -- for multithreading
+    omp_set_num_threads(4); // sets total number of CPU threads the system uses for multithreading the main algorithm
+    cv::setNumThreads(1); // saets the number of CPU threads that the openCV code can use. -- only set as 1 because it shouldn't need to multithread on the CPU at all but just the GPU -- so this ensures no CPU threads are created which would take more time to recombine
 
     // Grab a real first frame and derive dimensions / channel count from it.
     // Deriving from an actual frame (rather than getWidth()/getHeight() before
@@ -84,19 +103,20 @@ int main() {
         }
     }
 
+    // gets frame values and sets boolean (is_color) to check if camera stream is RGB (3 streams) of monochrome which is 1 stream
     int frame_width  = first.cols;
     int frame_height = first.rows;
     bool is_color    = (first.channels() == 3);
 
-    // only the diagnostic recording is downscaled.
+    // only the diagnostic recording is downscaled -- saves a video it records and is resolution is downscaled by half to make it save faster
     int enc_width  = frame_width  / 2;
     int enc_height = frame_height / 2;
 
-    // Round to even — H.264 requires even dimensions in both axes.
+    // Round pixel resolution to an even number — H.264 requires even dimensions in both axes.
     enc_width  &= ~1;
     enc_height &= ~1;
 
-    // Define video file output
+    // Define video file output frame size
     cv::Size frame_size(enc_width, enc_height);
 
     // Hardware-encoded pipeline using the Orin's NVENC block via GStreamer.
@@ -116,6 +136,8 @@ int main() {
     //
     // Encode at half resolution. findDebris() still runs on the full-res frame;
 
+
+    // GST pipeline is what sends the stream to the output file
     std::string gst_pipeline = "appsrc ! "
     "video/x-raw, format=GRAY8 ! " 
     "queue ! "
@@ -138,7 +160,7 @@ int main() {
         return -1;
     }
 
-    Sentry sentry(TARGET_LOG_FILENAME);
+    Sentry sentry(TARGET_LOG_FILENAME); // sets up sentry class by calling the constructor
     int timeout = 2000; //ms
 
     // Non-blocking terminal input: press 'q' (or ESC) to quit. Works whether
@@ -146,17 +168,25 @@ int main() {
     KeyInput keys;
     std::cout << "DebrisTracking running. Press 'q' to quit." << std::endl;
 
-    // open file write streams
+    // open file write streams -- output file streams and appends necessary data
     Motor_Data.open(MOTOR_LOG_FILENAME, std::ios::app);
     Debris_Data.open(DEBRIS_LOG_FILENAME, std::ios::app);
     //All_Target_Data.open(TARGET_LOG_FILENAME, std::ios::app); opened in WriteToFile() in Sentry.cpp
     
-
+    // set default debris id to -1
     int debris_id = -1;
-    cv::Mat frame;
+    cv::Mat frame; // declare frame variable that we will be working with
+
+    // END OF MAIN SETUP
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    // PRIMARY CODE LOOP STARTS HERE:
+
+    //////////////////////////////////////////////////////////////////////////////////////
+
     while (true) {
         // Synchronously fetch exactly one frame from the camera stream (2000ms timeout)
-        frame = cam.getFrame(timeout);
+        frame = cam.getFrame(timeout); 
 
         if ( frame.empty() ) {
             // null return from getFrame() meaning no frame captured
@@ -164,22 +194,23 @@ int main() {
         }
         
         // read motor position
-        std::vector<double> raw = sender.readMotorPosition(Motor_Data);
+        std::vector<double> raw = sender.readMotorPosition(Motor_Data); // saves frame number and motor position to the text file
         //double m_pos = raw[1];
         int ard_frame_num = static_cast<int>(raw[0]);
 
-        long long fid = cam.getFrameID();
+        long long fid = cam.getFrameID();// gets frame ID from camera
 
-        long long gap = fid - ard_frame_num;
+        long long gap = fid - ard_frame_num; // defines gap between what camera reports the frameID as and what the Arduino reports the frame ID as
+                                             // theoretically this value should be 0 since the Arduino counter will start after the camera counter starts
 
-        Motor_Data << std::setw(12) << gap << "\n";
+        Motor_Data << std::setw(12) << gap << "\n"; // logs gap data onto the necessay text file
 
-        std::cout << "Frame ID gap: " << gap << std::endl;
+        std::cout << "Frame ID gap: " << gap << std::endl; // lists gap value if it exists
 
 
-        debris_id = sentry.findDebris(frame, debris_id, fid);
+        debris_id = sentry.findDebris(frame, debris_id, fid); // one line call to the ENTIRE debris finding algorithm
 
-        if ( debris_id != -1 ){
+        if ( debris_id != -1 ){ // if debris ID is not the default ID (meaning that tracking has started) then save all necessary information to the data file and send all necessary info to the Arduino side
             // write to file
             Target* current = (*sentry.getFullListPtr())[debris_id];
             Debris_Data << std::setw(12) << fid << "," << std::setw(12) << debris_id
@@ -189,13 +220,13 @@ int main() {
                     << "," << std::setw(12) << current->getDebrisLikelihood() << "\n" << std::flush;
 
             // write to Arduino
-            std::vector<int> debris_xy = sentry.getTargetCoords(debris_id);
+            std::vector<int> debris_xy = sentry.getTargetCoords(debris_id); 
             writeToPID(sender, debris_id, debris_xy[0], debris_xy[1], debris_xy[2], debris_xy[3]);
         } else {
             writeToPID(sender, -1, -1, -1, -1, -1);
         }
 
-        writer.write(frame);
+        writer.write(frame); // saves the video frame
 
         // (optional) show the frame
         // if (GUI) {
@@ -221,12 +252,14 @@ int main() {
     return 0;
 }
 
+
 void writeToPID(ArduinoSend& sender, int id, int x, int y, int nx, int ny) {
 
     // Transmit coordinates down to the UNO and automatically catch the echo
     bool success = false;
 
-    if ( nx == -1 ) {
+    if ( nx == -1 ) { // checks if there is a predicted next step from the kalman filter and will only have that if the object is currently not found in the frame but was in previous frame 
+                      // -- essentially if object flickers or passes out of sight in a given frame then this uses the expected position from the kalman filter instead
         success = sender.sendTargetCoordinates(id, x, y);
     } else {
         success = sender.sendTargetCoordinates(id, nx, ny);

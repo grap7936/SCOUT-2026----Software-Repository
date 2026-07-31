@@ -1,90 +1,216 @@
-#ifndef TARGET_HPP
-#define TARGET_HPP
-#include <opencv2/opencv.hpp>
-class Graph ; 
+/////////////////////////////////////////////////////////////
+/*
+Code Summary:
+The Target class is the core data record for a single detected object in one frame.
+Every contour the Detector finds becomes a Target, and the Selector/Sentry pipeline
+threads these per-frame records together over time to form tracks. A Target stores:
+  - identity/measurement:   id, size, raw detected position (x, y)
+  - Kalman state:           predicted position (nx, ny), corrected position (kx, ky),
+                            and smoothed velocity (vx, vy)
+  - bookkeeping:            debris_likelihood score, frame_num it was detected on
+  - track links:            prev_instance / next_instance (the same physical object in
+                            the previous / next frame) and proximity (the cost graph
+                            built from this target to every candidate in the next frame)
 
-class Target {
-private: // moved from public
-    int id;
-    int size;
-    float x, y;
-    float nx, ny; 
-    float vx, vy;
-    float kx, ky;
-    int debris_likelihood;
-    int frame_num;
-    Target* next_instance;
-    Target* prev_instance;
-    Graph* proximity;
-    // std::shared_ptr<cv::KalmanFilter> kf; move to external array
+All members are private; the rest of the pipeline reads and writes them exclusively
+through the simple accessors below.
 
-public:
+Note: the Kalman filter itself no longer lives on the Target (the old shared_ptr<kf>
+member was removed); filters are now stored in an external array keyed by Target id
+inside the Selector class.
+*/
+/////////////////////////////////////////////////////////////
 
-    Target(float x, float y, int size);
-        
-    int getID();
+#include "Target.hpp"
 
-    void setID(int id);
+/* Constructor( int x, int y, int size )
+ * description:
+ *  Builds a fresh target from a raw detection. Position and size come from the
+ *  detected contour; every tracking/Kalman field is initialized to a neutral
+ *  "not yet known" sentinel (-1 for positions that have not been estimated,
+ *  0 for velocities and scores) and all track-link pointers start null.
+ * inputs:
+ *  int x, int y - centroid pixel coordinates of the detected contour.
+ *  int size     - area (pixel count) of the detected contour.
+ * returns:
+ *  none - constructs the object in place.
+ */
+Target::Target(int x, int y, int size) {
+    this->x = x;
+    this->y = y;
+    this->size = size;
+    this->id = -1;
+    this->nx = -1;
+    this->ny = -1;
+    this->vx = 0;
+    this->vy = 0;
+    this->kx = -1;
+    this->ky = -1;
+    this->debris_likelihood = 0;
+    this->frame_num = 0;
+    this->next_instance = nullptr;
+    this->prev_instance = nullptr;
+    this->proximity = nullptr;
+}
 
-    float getX();
+// --- Identity & measurement ------------------------------------------------
 
-    void setX(int x);
+// Returns the unique track ID assigned to this target (-1 until initTarget runs)
+int Target::getID() {
+    return this->id;
+}
 
-    float getY();
+// Sets the unique track ID for this target
+void Target::setID(int id) {
+    this->id = id;
+}
 
-    void setY(int y);
+// Returns the raw detected x (centroid) pixel coordinate
+int Target::getX() {
+    return this->x;
+}
 
-    int getSize();
+// Sets the raw detected x (centroid) pixel coordinate
+void Target::setX(int x) {
+    this->x = x;
+}
 
-    void setSize(int size);
+// Returns the raw detected y (centroid) pixel coordinate
+int Target::getY() {
+    return this->y;
+}
 
-    float getNx();
-    
-    void setNx(int nx);
+// Sets the raw detected y (centroid) pixel coordinate
+void Target::setY(int y) {
+    this->y = y;
+}
 
-    float getNy();
+// Returns the contour area (pixel count) of this target
+int Target::getSize() {
+    return this->size;
+}
 
-    void setNy(int ny);
+// Sets the contour area (pixel count) of this target
+void Target::setSize(int size) {
+    this->size = size;
+}
 
-    float getVx();
+// --- Kalman predicted position (nx, ny) ------------------------------------
 
-    void setVx(float vx);
+// Returns the Kalman-predicted next x coordinate
+int Target::getNx() {
+    return this->nx;
+}
 
-    float getVy();
+// Sets the Kalman-predicted next x coordinate
+void Target::setNx(int nx) {
+    this->nx = nx;
+}
 
-    void setVy(float vy);
+// Returns the Kalman-predicted next y coordinate
+int Target::getNy() {
+    return this->ny;
+}
 
-    float getKx();
+// Sets the Kalman-predicted next y coordinate
+void Target::setNy(int ny) {
+    this->ny = ny;
+}
 
-    void setKx(float kx);
+// --- Kalman smoothed velocity (vx, vy) -------------------------------------
 
-    float getKy();
+// Returns the Kalman-smoothed x velocity (pixels/frame)
+float Target::getVx() {
+    return this->vx;
+}
 
-    void setKy(float ky);
+// Sets the Kalman-smoothed x velocity (pixels/frame)
+void Target::setVx(float vx) {
+    this->vx = vx;
+}
 
-    int getFrameNum();
+// Returns the Kalman-smoothed y velocity (pixels/frame)
+float Target::getVy() {
+    return this->vy;
+}
 
-    void setFrameNum(int frame_num);
+// Sets the Kalman-smoothed y velocity (pixels/frame)
+void Target::setVy(float vy) {
+    this->vy = vy;
+}
 
-    int getDebrisLikelihood();
+// --- Kalman corrected position (kx, ky) ------------------------------------
 
-    void setDebrisLikelihood(int);
+// Returns the Kalman-corrected x coordinate (smoothed best estimate)
+float Target::getKx() {
+    return this->kx;
+}
 
-    Target* getNextInstancePtr();
+// Sets the Kalman-corrected x coordinate
+void Target::setKx(float kx) {
+    this->kx = kx;
+}
 
-    void setNextInstancePtr(Target* next_instance);
+// Returns the Kalman-corrected y coordinate (smoothed best estimate)
+float Target::getKy() {
+    return this->ky;
+}
 
-    Target* getPrevInstancePtr();
+// Sets the Kalman-corrected y coordinate
+void Target::setKy(float ky) {
+    this->ky = ky;
+}
 
-    void setPrevInstancePtr(Target* prev_instance);
+// --- Bookkeeping -----------------------------------------------------------
 
-    Graph* getProximity();
+// Returns the frame number this target was detected on
+int Target::getFrameNum() {
+    return this->frame_num;
+}
 
-    void setProximity(Graph* proximity);
-    
-    // std::shared_ptr<cv::KalmanFilter> getKf();
+// Sets the frame number this target was detected on
+void Target::setFrameNum(int frame_num) {
+    this->frame_num = frame_num;
+}
 
-    // void setKf(std::shared_ptr<cv::KalmanFilter> kf) ;
-};
-        
-#endif
+// Returns the accumulated debris-likelihood score for this track
+int Target::getDebrisLikelihood() {
+    return debris_likelihood;
+}
+
+// Sets the accumulated debris-likelihood score for this track
+void Target::setDebrisLikelihood(int count) {
+    this->debris_likelihood = count;
+}
+
+// --- Track links -----------------------------------------------------------
+
+// Returns the pointer to this object's instance in the next frame (null if none)
+Target* Target::getNextInstancePtr() {
+    return this->next_instance;
+}
+
+// Sets the pointer to this object's instance in the next frame
+void Target::setNextInstancePtr(Target* next_instance) {
+    this->next_instance = next_instance;
+}
+
+// Returns the pointer to this object's instance in the previous frame (null if none)
+Target* Target::getPrevInstancePtr() {
+    return this->prev_instance;
+}
+
+// Sets the pointer to this object's instance in the previous frame
+void Target::setPrevInstancePtr(Target* prev_instance) {
+    this->prev_instance = prev_instance;
+}
+
+// Returns the proximity (cost) graph built from this target to next-frame candidates
+Graph* Target::getProximity() {
+    return this->proximity;
+}
+
+// Sets the proximity (cost) graph for this target
+void Target::setProximity(Graph* proximity) {
+    this->proximity = proximity;
+}

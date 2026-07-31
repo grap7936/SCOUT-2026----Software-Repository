@@ -23,6 +23,8 @@ bool hasDisplay() {
 
 static const bool GUI = hasDisplay();
 
+
+// runs the same as the main script but instead takes in a video stream rather than a camera connection.
 int main() {
 
     // Set up data output files

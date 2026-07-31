@@ -340,22 +340,23 @@ void Selector::calculateMedianVelocity() {
  */
 void Selector::scan( std::vector<Target*>* prev, std::vector<Target*>* next, std::vector<Target*>* full, int frame_num ) {
 
-    // Cache structural parameters safely locally within class state pointers
+    // Cache structural parameters safely locally within class state pointers -- gets all list from sentry and saves to its own local parameters
     setNextTargets(next);
     setPrevTargets(prev);
     setFullTargetList(full);
     setCurrentFrameNum(frame_num);
 
     // Phase 1: Advance historical tracking equations forward to match current time frame
-    estimateNextState();
+    estimateNextState(); // uses linear kalman filter model 
 
+    // Phases 2 and 3 are preporatory for data to put into the hungarian selector algorithm
     // Phase 2: Determine bands
     computeBands();
 
     // Phase 3: Compute bipartite graph matching edges using Euclidean offsets
     computeWeights();
 
-    // Phase 4: Solve the cost allocation problem and update node linking identities
+    // Phase 4: Solve the cost allocation problem and update node linking identities -- connect prev to next targets from hungarian selector
     connect(); 
 
 }
@@ -380,9 +381,9 @@ void Selector::estimateNextState() {
         Target* target = (*prev_targets)[i];
 
         // Advance state tracking equations forward in time (Prediction stage)
-        cv::Mat prediction = kf_list[target->getID()].predict();
+        cv::Mat prediction = kf_list[target->getID()].predict(); // .predict is built into CV kalman filter for reference to predict position
 
-        // Extract projected location predictions and store inside node properties
+        // Extract projected location predictions and store inside node properties 
         target->setNx( prediction.at<double>(0,0) ); // Predicted X position coordinate
         target->setNy( prediction.at<double>(1,0) ); // Predicted Y position coordinate
     }  
@@ -395,7 +396,7 @@ int Selector::band_of( float y ) const {
     return b;
 }
 
-void Selector::computeBands() {
+void Selector::computeBands() { // divides up the frame into bands/sections and then each band has a bin which targets are assigned into for each band. Categorizes the targets by what band of the frame they're in
     const int prev_size = prev_targets->size();
     const int next_size = next_targets->size();
 
@@ -480,16 +481,16 @@ void Selector::computeBands() {
  * the previous frame's proximity pointer without deleting it. See the review report -
  * these graphs are never freed, so this leaks once per track per frame.
  */
-void Selector::computeWeights() {
+void Selector::computeWeights() { // graph class comes into use here
 
     const size_t prev_size = prev_targets->size();
 
     #pragma omp parallel for
-    // loop through
+    // loop through all previous targets
     for ( size_t i = 0; i < prev_size; i++) {
         Target* p = (*prev_targets)[i];
 
-        Graph* g = p->getProximity();
+        Graph* g = p->getProximity(); // checks if the target already has a graph. If it doesn't then it allocates memory for a new graph and links it to the target
         if ( g == nullptr ) {
             // allocate on heap
             g = new Graph();          // once per Target, ever
@@ -497,9 +498,9 @@ void Selector::computeWeights() {
             p->setProximity(g);
         }
         // construct from current target list
-        g->rebuild( *p, *next_targets );
+        g->rebuild( *p, *next_targets ); // if there was an already existing graph then it is overwritten
 
-        // calculate weights
+        // calculate weights using built in function if a valid set of bands is determined
         if (bands_valid) {
             g->calcWeightBanded( WEIGHT_COMPOSITION, prev_cols[i] );
         } else {
@@ -618,14 +619,15 @@ void Selector::connect() {
 
     // Nothing to match against -> every detection is a fresh track (handled in the
     // cleanup tail, unchanged). Bail early to avoid empty-band bookkeeping.
-    if ( prev_size == 0 || next_size == 0 ) {
+    // if nothing to match -- will still update KF estimate but will use objects from previous instance and recalculated median velocity 
+    if ( prev_size == 0 || next_size == 0 ) { // checks if previous or next target array is empty (i.e nothing to match against) and if so does a separate set of commands
         // Still must run the tail so new detections spawn and velocity stats refresh.
         updateEstimate();
         determineRelevantTargets();
         calculateMedianVelocity();
         for (size_t i = 0; i < next_targets->size(); i++) {
             std::vector<float> estimated_velocity = getMedianTargetVelocity();
-            initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]);
+            initTarget((*next_targets)[i], estimated_velocity[0], estimated_velocity[1]); // when there are no previous targets to match against, next targets still need to be initialized as new objects and this occurs in this line
         }
         return;
     }
@@ -636,21 +638,21 @@ void Selector::connect() {
     // their assignment by best weight after the parallel section.
     std::vector<int>  next_owner(next_size, -1);      // which prev index claimed this next
     std::vector<int>  next_owner_w(next_size, INT_MAX); // weight of that claim
-    std::vector<bool> next_targets_used(next_size, false);
+    std::vector<bool> next_targets_used(next_size, false); // keeps track of what targets have been already connected
 
     // Mutex-free merge: each band proposes (prev_j -> next_c, weight); we keep the
     // lowest-weight proposal per next_c. Collect proposals per band, merge serially.
     std::vector<std::vector<std::array<int,3>>> band_proposals(num_bands); // {next_c, prev_j, weight}
 
-    #pragma omp parallel for schedule(dynamic)
-    for (int b = 0; b < num_bands; b++) {
+    #pragma omp parallel for schedule(dynamic) // parallelizes looping through number of bands
+    for (int b = 0; b < num_bands; b++) { 
         const std::vector<int>& rows = prev_bins[b];
         const std::vector<int>& cols = next_bins[b];
         if (rows.empty() || cols.empty()) continue;
 
         // Build this band's cost matrix: local rows x local cols, pulling weights from
         // each prev's proximity graph at the REAL next column index.
-        std::vector<std::vector<int>> band_matrix(rows.size(),
+        std::vector<std::vector<int>> band_matrix(rows.size(), // creating a separate sublist of next_targets to pass into hungarian selector rather than full next targets list
                                                   std::vector<int>(cols.size(), 0));
         for (size_t lr = 0; lr < rows.size(); lr++) {
             const std::vector<int>& full_row = (*prev_targets)[ rows[lr] ]->getProximity()->getWeights();
@@ -661,7 +663,7 @@ void Selector::connect() {
 
         // Solve this band. hungarianAlgorithm is const w.r.t. shared state (operates on
         // its own copy), so calling it from parallel bands is safe.
-        std::vector<int> col_from_row = hungarianAlgorithm(band_matrix);
+        std::vector<int> col_from_row = hungarianAlgorithm(band_matrix); 
 
         // Translate local assignment back to real indices; gate on THRESHOLD.
         std::vector<std::array<int,3>> proposals;
@@ -704,13 +706,13 @@ void Selector::connect() {
         if (prev_used[j]) continue; // prev already linked to a closer detection
         prev_used[j] = true;
 
-        Target* prev = (*prev_targets)[j];
+        Target* prev = (*prev_targets)[j]; 
         Target* next = (*next_targets)[next_c];
 
         prev->setNextInstancePtr( next );
         next->setPrevInstancePtr( prev );
         next->setID( prev->getID() );
-        next_targets_used[next_c] = true;
+        next_targets_used[next_c] = true;  // updates which next target that has actually been used because the unusued next targets list then become new objects in the frame
         (*full_list)[ next->getID() ] = next;
     }
 
@@ -718,12 +720,12 @@ void Selector::connect() {
     // Tail: identical to the original. Correct filters, refresh relevant/median,
     // then spawn brand-new tracks for any unmatched detection.
     // ------------------------------------------------------------------
-    updateEstimate();
+    updateEstimate();// kalman filter function that checks prediction against actual measurement and updates corrected estimate of position
 
-    determineRelevantTargets();
+    determineRelevantTargets(); // different from getRelevantTargets() -- this is computed just once 
     calculateMedianVelocity();
 
-    for (size_t i = 0; i < next_targets->size(); i++) {
+    for (size_t i = 0; i < next_targets->size(); i++) { // checks if all next targets have been used and skips if yes, if no the initializes new target
         if ( next_targets_used[i] == true ) {
             continue;
         } else {
@@ -748,13 +750,13 @@ void Selector::connect() {
  * returns:
  * void - updates fields within new_target, appends to full_list and kf_list.
  */
-void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
+void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) { // also called in Sentry.cpp in Sentry::init function which registers all targets as new objects if starting for the first time
 
     // Assign a unique ID based on the current number of tracked targets, then store it
-    new_target->setID( getFullTargetList()->size() );
-    new_target->setKx( new_target->getX() );
+    new_target->setID( getFullTargetList()->size() ); // checks current size of list to confirm it is stored by ID
+    new_target->setKx( new_target->getX() ); // sets placeholders for the corrected kalman filter x and y positions as the current positions -- these will be corrected later
     new_target->setKy( new_target->getY() );
-    getFullTargetList()->push_back(new_target);
+    getFullTargetList()->push_back(new_target); // adds them to list of full targets
 
     // Initialize Kalman Filter parameters
     // State vector: [x, y, vx, vy]^T -> 4 dimensions (Position & Velocity)
@@ -763,7 +765,7 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
     int measDim = 2;
     int ctrlDim = 0;
     
-    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_64F);
+    cv::KalmanFilter KF(stateDim, measDim, ctrlDim, CV_64F); // kalman filter declaration
 
     // Define the State Transition Matrix (A) assuming a constant velocity model:
     // x_next  = 1*x  + 0*y  + 1*vx + 0*vy
@@ -776,26 +778,29 @@ void Selector::initTarget( Target* new_target, float est_vx, float est_vy ) {
         0.0, 0.0, 1.0, 0.0,
         0.0, 0.0, 0.0, 1.0
     };
-    KF.transitionMatrix = cv::Mat(4, 4, CV_64F, const_cast<double*>(tMat)).clone();
+    KF.transitionMatrix = cv::Mat(4, 4, CV_64F, const_cast<double*>(tMat)).clone(); // saves transition matrix to kalman filter
 
     // Define Measurement Matrix (H) to isolate observed variables:
     // Extracts directly measured position [x, y] from the 4D state vector
-    static const double mMat[] = {1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0};
-    KF.measurementMatrix = cv::Mat(2, 4, CV_64F, const_cast<double*>(mMat)).clone();
+    static const double mMat[] = {1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0}; // returns only x and y from the same format as the transition matrix variables above
+    KF.measurementMatrix = cv::Mat(2, 4, CV_64F, const_cast<double*>(mMat)).clone(); // saves measurement matrix to kalman filter
 
-    // Tune filter noise models
+    // Tune filter noise models ************************* may use/tweak this later
 
-    // Process noise covariance (Q) - increasing this makes KF learn new speeds faster
+    // Process noise covariance (Q) - increasing this makes KF learn new speeds faster 0 -- process noise == how much do we trust the linear model -- higher value means less trust in the linear model. May need to increase this value if seeing significant dropouts when initially switching from sentry mode to tracking mode
+    // if the value is increased, the model will be trusted less and the measurement trusted more so the predicted position will be closer to the measurement value
     KF.processNoiseCov = cv::Mat::eye(stateDim, stateDim, CV_64F) * 1e-2; // was 1e-4
     
-    // Measurement noise covariance (R) - noise pixel position
+    // Measurement noise covariance (R) - noise pixel position -- don't really touch this much -- noise expected in the pixel position brightness
     KF.measurementNoiseCov = cv::Mat::eye(measDim, measDim, CV_64F) * 1e-1;
     
-    // Posteriori error estimate covariance (P) - noise error in first estimate (initialization)
+    // Posteriori error estimate covariance (P) - noise error in first estimate (initialization) -- noise in the 1st estimate when it is a new object -- pretty high error in first estimate is expected so this value is set as high
     KF.errorCovPost = cv::Mat::eye(stateDim, stateDim, CV_64F) * 3.0; // was 1.0
 
     // Seed the filter with the initial position coordinates; velocity starts at the swarm's current mean velocity
-    KF.statePost = cv::Mat_<double>(4,1);
+    KF.statePost = cv::Mat_<double>(4,1); // creates output matrix
+
+    // sets output matrix values to measured x, y and estimated velocity x and y (median velocity in the case of a new target or 0 for the first frame ever)
     KF.statePost.at<double>(0, 0) = static_cast<double>(new_target->getX());
     KF.statePost.at<double>(1, 0) = static_cast<double>(new_target->getY());
     KF.statePost.at<double>(2, 0) = static_cast<double>(est_vx);

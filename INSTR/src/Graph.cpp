@@ -245,20 +245,22 @@ void Graph::addVerticesFromList( const std::vector<Target*>& vertices, const std
  * returns:
  * void - overwrites this graph's weights[] in place (parallel to targets[]).
  */
-void Graph::calcWeight( float gain1 ) {
+void Graph::calcWeight( float gain1 ) { // gets 2 different weight, scales them and then combines them to get a final weight 
 
-    float gain2 = 1.0 - gain1;
+    float gain2 = 1.0 - gain1; // 25% of the weight score comes from the input which is SELECTOR_WEIGHT_COMPOSITION in Sentry.cpp
 
     // Evaluate physical spacing between the root and every candidate detection in this graph
     for (size_t i = 0; i < targets.size(); i++) {
 
         // Step 1: Distance between the root's last measured position and this candidate
+        // basic euclidean distance formulas
         int dx = root_x - targets[i]->getX();
         int dy = root_y - targets[i]->getY();
         float norm1 = std::sqrt( dx*dx + dy*dy );
         int weight1 = gain1 * norm1 * 10; // Scaling factor for cost matrix compliance
 
         // Step 2: Distance between the root's Kalman-predicted position (nx, ny) and this candidate
+        // basic euclidean distance formulas
         int dnx = root_nx - targets[i]->getX();
         int dny = root_ny - targets[i]->getY();
         float norm2 = std::sqrt( dnx*dnx + dny*dny );
@@ -274,7 +276,7 @@ void Graph::calcWeight( float gain1 ) {
 // Same math as calcWeight, but only for the candidate columns. Entries outside
 // the band keep the INT_MAX sentinel, which connect()'s `w > THRESHOLD` check
 // rejects exactly as it would a too-distant real weight.
-void Graph::calcWeightBanded( float gain1, const std::vector<int>& cols ) {
+void Graph::calcWeightBanded( float gain1, const std::vector<int>& cols ) { // does the same thing as the list target but applied to only a limited number as it is analyzing a single band
     const float gain2 = 1.0f - gain1;
     std::fill(weights.begin(), weights.end(), INT_MAX);
 
@@ -303,7 +305,7 @@ void Graph::calcWeightBanded( float gain1, const std::vector<int>& cols ) {
  * returns:
  * void - overwrites this graph's weights[] in place (parallel to targets[]).
  */
-void Graph::calcWeightOMP( float gain1 ) {
+void Graph::calcWeightOMP( float gain1 ) { // parallelization of calcWeight function -- not currently being used as it didn't provide too much speed up
 
     float gain2 = 1.0 - gain1;
 
@@ -340,7 +342,7 @@ void Graph::calcWeightOMP( float gain1 ) {
  * returns:
  *  void - Rearranges target and weight elements sequentially within internal container allocations.
  */
-void Graph::sortByWeight() {
+void Graph::sortByWeight() { // only used in testingGraphTest.cpp file and used to verify output
     int size = weights.size();
     
     // Duplicate snapshot arrays to hold state contexts while doing in-place shifting

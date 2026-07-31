@@ -7,6 +7,7 @@
 
 using namespace VmbCPP;
 
+// takes an image and saves it to ensure camera functionality
 int main() {
 
     CameraWrapper cam(10);

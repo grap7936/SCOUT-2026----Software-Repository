@@ -15,6 +15,7 @@ using namespace VmbCPP;
 
 const float FPS = 79.0;
 
+// runs the camera with the algorithm put the camera doesn't move or point anywhere
 int main() {
 
     CameraWrapper cam(FPS);

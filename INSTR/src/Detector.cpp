@@ -13,7 +13,7 @@ Note: The Detector is now stateless with respect to target identity (ID tracking
 
 Author: Graeme Appel with later modifications made by Zachary Dyre (initCudaFilters and get functions)
 
-Last Updated: 7/30/2026
+Last Updated: 7/31/2026
 */
 
 /////////////////////////////////////////////////////////////
@@ -90,7 +90,7 @@ Detector::Detector() {
  */
 
  /////////////////////////////////////////////////////////////
-void Detector::initCudaFilters() {
+void Detector::initCudaFilters() { // initializes different openCV functions with GPU architecture (cuda) in mind
 
     // Median blur operates on CV_8UC1 (grayscale). Window size must be odd; the
     // constructors pass odd BLUR_KERNEL_SIZE values (default 5).
@@ -226,11 +226,11 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
             mono = cv::Mat(frame);
         } else if (frame.channels() >= 3) {
             // foregound mask that converts the background subtractor image to a non-colored background 
-            cv::cvtColor(frame, mono, cv::COLOR_BGR2GRAY);
+            cv::cvtColor(frame, mono, cv::COLOR_BGR2GRAY); // changes color video to monochrome for fullTest videostream testing
         }
 
         // Applies median Blur to foreground mask from last step (kernel size is 5 --> higher kernel size means more overall blur) --> this can be adjusted based on the initial overall noise that needs to be filtered out
-        cv::medianBlur(mono, blur, BLUR_KERNEL_SIZE);
+        // cv::medianBlur(mono, blur, BLUR_KERNEL_SIZE);
         
         // // The grayscale image from the previous line is altered with a binary threshold that forces all "gray" pixels with a brightness greater than 25 to become pure white (255) and all pixels with a brightness less than or equal to 25 to become pure black (0).
         // cv::threshold(blur, thresh_temp, 30, 255, cv::THRESH_BINARY);
@@ -240,12 +240,14 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
         
         // Uses OpenMP parallelization to speed up histogram generation across frame rows
         int histogram[256] = {0};
-        #pragma omp parallel for reduction(+:histogram[:256])
-        for (int r = 0; r < blur.rows; r++) {
+        #pragma omp parallel for reduction(+:histogram[:256]) // parallelizing a for loop but all different threads are trying to use the same histogram so use a race condition (reduction) to make sure to split up the histogram variable so threads can access it individually and then recombine it
+
+        // goes through rows and columns pixels and checks intensity of pixel on scale of 0-255 and based on that value it increments that count at that spot in the histogram
+        for (int r = 0; r < mono.rows; r++) {
             // One row-pointer lookup per row, then flat contiguous access across the row.
             // Replaces per-pixel bounds-checked blur.at<>() with direct pointer indexing.
-            const unsigned char* pRow = blur.ptr<unsigned char>(r);
-            for (int c = 0; c < blur.cols; c++) {
+            const unsigned char* pRow = mono.ptr<unsigned char>(r);
+            for (int c = 0; c < mono.cols; c++) {
                 histogram[ pRow[c] ]++;
             }
         }
@@ -253,6 +255,8 @@ void Detector::calibrateBackgroundNoise(const cv::Mat& frame) {
 
         // The mode (most frequent intensity) is the dominant background level in a
         // mostly-empty frame - find the bin with the highest count.
+        // goes through histogram to find pixel of highest or most common intensity and then removes that as global background noise
+        // global background noise here does not account for SNR -- possibly might need to add this in later *** -- scalar term or constant offset 
         int mode_intensity = 0;
         int mode_count = 0;
         for (int i = 0; i < 256; i++) {
@@ -310,7 +314,7 @@ cv::Mat Detector::filter(const cv::Mat& frame) { // note that cv::Mat is an imag
     // Reused every subsequent frame -> zero per-frame allocation.
     if (!shared_bufs_ready ||
         h_frame_shared.size() != frame.size() ||
-        h_frame_shared.type() != frame.type()) {
+        h_frame_shared.type() != frame.type()) { // checks to allocate memory with correct frame dimensions
         h_frame_shared   = cv::cuda::HostMem(frame.size(), frame.type(),
                                              cv::cuda::HostMem::SHARED);
         h_dilated_shared = cv::cuda::HostMem(frame.size(), CV_8UC1,

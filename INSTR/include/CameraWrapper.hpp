@@ -19,7 +19,7 @@ using namespace VmbCPP;
 // then immediately re-queue the buffer so the capture engine never runs dry.
 // getFrame() on the main thread just waits for / reads that slot.
 // -------------------------------------------------------------------------
-class FrameObserver : public IFrameObserver {
+class FrameObserver : public IFrameObserver { // lower level camera wrapper 
 public:
     FrameObserver(CameraPtr camera);
 
@@ -41,15 +41,16 @@ private:
 
 class CameraWrapper {
 private:
-    VmbSystem& SYSTEM = VmbSystem::GetInstance();
+    VmbSystem& SYSTEM = VmbSystem::GetInstance(); // uses this function to obtain VMB firmware as a variable
 
-    CameraPtrVector CAMERAS;
+    CameraPtrVector CAMERAS; // vector of cameras that it finds connected to the VMB firmware system -- manager of the camera connections
 
-    CameraPtr CAMERA;
+    CameraPtr CAMERA; // relevant camera connected
 
-    IFrameObserverPtr OBSERVER;    // owning shared ptr the SDK requires
+    IFrameObserverPtr OBSERVER;    // owning shared ptr the SDK requires -- actually grabs the frames from the camera -- defined above in the IFrameObserver class
     FrameObserver* OBS_RAW = nullptr; // non-owning, for waitForFrame()
 
+    // Basic frame/camera parameters
     int HEIGHT = 0;
 
     int WIDTH = 0;
@@ -60,12 +61,12 @@ private:
 
     bool STREAMING = false;
 
-    VmbUint64_t LAST_FRAME_ID = 0;
-    VmbUint64_t FIRST_FRAME_ID = 0;
+    VmbUint64_t LAST_FRAME_ID = 0; // most recent frame ID unpacked from the meta data
+    VmbUint64_t FIRST_FRAME_ID = 0; // when the frame number is unpacked from the meta data this saves what is unpacked as the first frame ID 
     bool HAVE_FIRST_ID = false;
 
     // Internal helpers
-    bool configureCamera();   // pixel format, gain, exposure, cache dimensions
+    bool configureCamera();   // sets pixel format, gain, exposure, cache dimensions
     bool startStream();       // StartContinuousImageAcquisition
     void stopStream();        // StopContinuousImageAcquisition
 
@@ -77,14 +78,14 @@ public:
     // Destructor
     ~CameraWrapper();
 
-    void restart();
+    void restart(); // re-runs the initialization process -- uses this if failing on the first attempt of initialization
 
-    cv::Mat getFrame(int timeout);
+    cv::Mat getFrame(int timeout); // gets frame before a certain time period where after which it ends the function if spending a time larger than the input timeout
 
     // Frame ID of the most recent frame returned by getFrame(), zero-based
     // from the start of this acquisition.
-    long long getFrameID() const { return (long long)(LAST_FRAME_ID - FIRST_FRAME_ID); }
-    VmbUint64_t getRawFrameID() const { return LAST_FRAME_ID; }
+    long long getFrameID() const { return (long long)(LAST_FRAME_ID - FIRST_FRAME_ID); } // gets current frame number by subtracting first frame last/most recent
+    VmbUint64_t getRawFrameID() const { return LAST_FRAME_ID; } // gets last/most recent frame
 
     CameraPtr getCamera();
 

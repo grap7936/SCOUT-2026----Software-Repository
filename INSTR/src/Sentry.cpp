@@ -40,6 +40,7 @@ Sentry::Sentry(std::string filename ) {
 
     TARGET_LOG_FILENAME = filename;
 
+    // copy and paste all of these following values at the top of main and then call sentry.setAllParams() and call all of these parameters to be set there
     TRACKER_DEBRIS_THRESHOLD = 20;
     TRACKER_DECAY = 6;
     TRACKER_SPEED_NOISE_FLOOR = 0.5f;
@@ -132,18 +133,20 @@ void Sentry::pageFrame( cv::Mat& frame ) {
     // Step 2: Retain any tracks that went unmatched last round but are still within the
     // occlusion grace window (missed for SELECTOR_FRAME_TIMEOUT frames or fewer), then add last
     // frame's detections as additional matching candidates for this round.
-    std::vector<Target*> retained_targets = {};
+    std::vector<Target*> retained_targets = {}; // grabs targets it wants to retain
     for (size_t i = 0; i < prev_targets.size(); i++) {
         Target* t = prev_targets[i];
-        if ( t->getNextInstancePtr() == nullptr && (current_frame_number - t->getFrameNum()) <= SELECTOR_FRAME_TIMEOUT ) {
+        if ( t->getNextInstancePtr() == nullptr && (current_frame_number - t->getFrameNum()) <= SELECTOR_FRAME_TIMEOUT ) { // ensures it isn't grabbing a super old frame
             retained_targets.push_back(t);
         }
     }
 
-    clearPrevTargets();
+    clearPrevTargets(); // dumps all unnecessary targets
     for (size_t i = 0; i < retained_targets.size(); i++) {
         prev_targets.push_back(retained_targets[i]);
     }
+
+    // puts all "old" next_targets in previous_targets array and then clears next_targets in preparation for new data
     for (size_t i = 0; i < next_targets.size(); i++) {
         auto t = next_targets[i];
         if ( t->getNextInstancePtr() == nullptr ) {
@@ -153,15 +156,18 @@ void Sentry::pageFrame( cv::Mat& frame ) {
     
     // Step 3: Clear the next array buffer and query the detector for incoming updates
     clearNextTargets();
-    detector.scan( frame, next_targets, current_frame_number );
+    detector.scan( frame, next_targets, current_frame_number ); // repopulates next targets using the detector scan function
     
     // Step 4: Run the matching pipeline to establish links between frame instances
-    int old_full_list_size = full_target_list.size();
-    selector.scan(&prev_targets, &next_targets, &full_target_list, current_frame_number);
+    int old_full_list_size = full_target_list.size(); // save old full target list size
+    selector.scan(&prev_targets, &next_targets, &full_target_list, current_frame_number); // links all the relevant repeat instances of an object across different frames -- links previous to next targets and adds only new targetrs to the full target list
     int new_full_list_size = full_target_list.size();
     
     // Step 5: Expand the debris score vector to account for any brand new tracking nodes
-    for (int j = old_full_list_size; j < new_full_list_size; j++ ) {
+    for (int j = old_full_list_size; j < new_full_list_size; j++ ) { // grabs original target list size and selector figures out what is old or repeated target
+                                                                     // difference between old and new size will only be new targets and not repeat targets
+                                                                     // because it is only new targets then these are added to the target_debris_count (which is indexed by ID) 
+                                                                     // assigns weighting of 0 which means it is either a background star or a higher weight is assigned later if deemed as a relevant object
         target_debris_count.push_back( 0 );
     }
 
@@ -255,16 +261,17 @@ void Sentry::clearNextTargets() {
  * returns:
  *  int - The target identifier matching suspected anomaly parameters; returns -1 if tracking remains steady.
  */
-int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_number ) {
+int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_number ) { 
     // Safety check: Boot pipeline tracking immediately if no records exist yet
-    if ( full_target_list.size() == 0 ) {
+    if ( full_target_list.size() == 0 ) { // checks if any targets are in the list -- keeps it from returning a tracked target if there are no targets -- safety check
         init( frame, frame_number );
         return -1;
     }
-    auto last_frame_number = current_frame_number;
+    auto last_frame_number = current_frame_number; // updates frame numbers
     current_frame_number = frame_number;   
 
-    if ( current_frame_number / DETECTOR_BG_REFRESH_FREQUENCY != last_frame_number / DETECTOR_BG_REFRESH_FREQUENCY ) {
+    if ( current_frame_number / DETECTOR_BG_REFRESH_FREQUENCY != last_frame_number / DETECTOR_BG_REFRESH_FREQUENCY ) { // checks if current frame # divided by frequency is equal to last frame # divided by freuqneyc
+                                                                                                                       // every X amount of frames as defined by refresh frequency recalibrates the background
         detector.startCalibration();
     }
 
@@ -275,16 +282,16 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
     updateDebrisLikelihood();
     
     // Quick reset check to cut frame timeout early for a bad candidate
-    if ( debris_id != -1 && target_debris_count[debris_id] == 0 ) {
+    if ( debris_id != -1 && target_debris_count[debris_id] == 0 ) { // checks to see if the current tracked has a new score of 0 and if so drop the object
         debris_id = -1;
     }
 
-    // Color frame
+    // Color frame -- draws white circle and score around debris if wanting to see in a viewing window -- also updates on the video output file as well
     // array of colors for tracking frame boxes  red, orange, yellow, green, blue, purple, pink
     std::vector<cv::Scalar> COLORS = { cv::Scalar(0,0,255),cv::Scalar(0,127,255),cv::Scalar(0,255,255),cv::Scalar(0,255,0),cv::Scalar(255,0,0),cv::Scalar(127,0,127),cv::Scalar(191,191,255) };
     for (size_t i = 0; i < next_targets.size(); i++) {
         if ( next_targets[i]->getPrevInstancePtr() == nullptr ) {
-            cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 5, COLORS[next_targets[i]->getID() % 7], -1);
+            cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 5, COLORS[next_targets[i]->getID() % 7], -1); // ensures that object IDs are tracked with the same color across frames
         } else {
             //cv::circle(frame, cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), 10, COLORS[next_targets[i]->getID() % 7], 2);
             cv::putText(frame, std::to_string(target_debris_count[next_targets[i]->getID()]), cv::Point(static_cast<int>(next_targets[i]->getX()), static_cast<int>(next_targets[i]->getY())), cv::FONT_HERSHEY_SIMPLEX, 0.5, COLORS[next_targets[i]->getID() % 7], 1, cv::LINE_AA);
@@ -292,8 +299,10 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
         
     }
 
+
+    // checking weighting to see what is most likely the best/ most relevant object
     // Extract nodes that possess a verified historical context track
-    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets(); // gets relevant targets again
     Target* saved_alt_target = nullptr;
     
     // Parse through tracked metrics to identity anomaly candidate conditions
@@ -301,20 +310,20 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
         Target* target = relevant_targets[j];
 
         // Core conditional gate: Flag entity if its outlier threshold score has been breached
-        if ( target_debris_count[target->getID()] > TRACKER_DEBRIS_THRESHOLD ) {
+        if ( target_debris_count[target->getID()] > TRACKER_DEBRIS_THRESHOLD ) { // gets debris score and checks if it is above the threshold
             
             // Branch A: Confirmed persistence; the anomalous candidate aligns with our tracking target
-            if ( target->getID() == debris_id && debris_id != -1 ) {
-                cv::circle(frame, cv::Point(static_cast<int>(target->getX()), static_cast<int>(target->getY())), 17, cv::Scalar(255, 255, 255), 3);
+            if ( target->getID() == debris_id && debris_id != -1 ) { // ensures that target ID is the object we want to be tracking and isn't the default set value of -1 i.e is actually tracking an object
+                cv::circle(frame, cv::Point(static_cast<int>(target->getX()), static_cast<int>(target->getY())), 17, cv::Scalar(255, 255, 255), 3); // draws circle around object
                 return debris_id;
             } 
             // Branch B: Anomaly found but its ID conflicts with what we are currently monitoring
             else {
                 // Buffer the highest-likelihood alternative candidate found as a fallback trace option
                 if ( saved_alt_target == nullptr ) {
-                    saved_alt_target = target;
+                    saved_alt_target = target; // if not tracking an object then this object becomes our target
                 } else {
-                    if (target->getDebrisLikelihood() > saved_alt_target->getDebrisLikelihood() ) {
+                    if (target->getDebrisLikelihood() > saved_alt_target->getDebrisLikelihood() ) { // checks if current target has a better score than the object being previously tracked to switch to it
                         saved_alt_target = target;
                     }
                 }
@@ -324,6 +333,7 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
 
     // Sticky tracking: if the locked target isn't over-gate or present this frame but is
     // still within its occlusion grace window, retain it rather than dropping the lock.
+    // if there is a dropout that is still within the timeout window of a few frames it will keep the same debris ID even if the object was not found in the frame
     if ( debris_id != -1 && full_target_list[debris_id]->getFrameNum() + SELECTOR_FRAME_TIMEOUT >= current_frame_number ) {
         return debris_id;
     }
@@ -336,8 +346,8 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
 
 
     // As the number of targets grows, the memory required to hold it grows larger. After a certain size, dump old targets
-    int cutoff = 2000;
-    if (selector.getTargetListOffset() > cutoff) {
+    int cutoff = 2000; 
+    if (selector.getTargetListOffset() > cutoff) { // checks if there are more than 2000 targets we're never going to touch again and then dumps them
         writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+cutoff), TARGET_LOG_FILENAME, true);
         dumpOldTargets(cutoff);
         debris_id -= cutoff;
@@ -345,7 +355,7 @@ int Sentry::findDebris( cv::Mat& frame, int debris_id, long long int frame_numbe
 
     // hard cutoff to prevent infinite memory allocation
     int hard_cutoff = 10000;
-    int s = full_target_list.size();
+    int s = full_target_list.size(); // also dumps if the full number of targets in full target list is greater than 10000 to maintain running speeds
     if (s > hard_cutoff) {
         writeTargetsToFile(std::vector<Target*>(full_target_list.begin(), full_target_list.begin()+s), TARGET_LOG_FILENAME, true);
         dumpOldTargets(s);
@@ -370,9 +380,13 @@ void Sentry::updateDebrisLikelihood() {
     std::vector<float> median_velocity = selector.getMedianTargetVelocity();
 
     // Compare each target's speed against the group baseline.
-    std::vector<Target*> relevant_targets = selector.getRelevantTargets();
+    std::vector<Target*> relevant_targets = selector.getRelevantTargets(); // only returns targets that are recent enough and have multiple instances across frames
+
+    // multithreads the for loop
     #pragma omp parallel for
     for (size_t i = 0; i < relevant_targets.size(); i++) {
+
+        // goes through all relevant targets and compares difference in velocity compared to the median and finds the magnitude of a velocity difference as a vetor and compares to a speed noise floor 
         Target* target = relevant_targets[i];
 
         // Target velocity difference magnitude (direction-agnostic: fast in any direction counts).
@@ -384,12 +398,12 @@ void Sentry::updateDebrisLikelihood() {
         // Excess speed above the group, with the noise floor subtracted out.
         float excess = velocity_diff - TRACKER_SPEED_NOISE_FLOOR;
 
-        if ( excess > 0.0f ) {
+        if ( excess > 0.0f ) { // ensure excess is higher than 0 when increasing the debris weighting score
             // Proportional reward: faster relative motion -> bigger score jump.
-            int gain = static_cast<int>( excess * TRACKER_SCORE_GAIN );
+            int gain = static_cast<int>( excess * TRACKER_SCORE_GAIN ); // more velocity difference means higher score
             //if ( gain < 1 ) { gain = 1; } // a clear outlier always earns at least 1
-            target_debris_count[target->getID()] += gain;
-        } else {
+            target_debris_count[target->getID()] += gain; // adds previous score to previous score which was initialized as 0
+        } else { // when excess is less than 0, this means that it is a background object -- then will decay score with a hard lower limit of 0
             // Below the floor: decay toward zero, clamped so scores never go negative.
             target_debris_count[target->getID()] -= TRACKER_DECAY;
             if ( target_debris_count[target->getID()] < 0 ) {
@@ -397,7 +411,7 @@ void Sentry::updateDebrisLikelihood() {
             }
         }
 
-        target->setDebrisLikelihood( target_debris_count[target->getID()] );
+        target->setDebrisLikelihood( target_debris_count[target->getID()] ); 
     }
 }
 

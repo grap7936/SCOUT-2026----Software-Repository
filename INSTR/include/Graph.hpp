@@ -13,8 +13,8 @@ private:
     int root_x, root_y;
     int root_nx, root_ny;
 
-    std::vector<Target*> targets; // vertex instance
-    std::vector<int> weights; // stores weight of vertex with corresponding index
+    std::vector<Target*> targets; // vertex instance -- list of all targets
+    std::vector<int> weights; // list of all stored weight of vertex with corresponding index -- i.e the weight from the root to targets[4] will be stored in weights[4] 
 
 public:
     
